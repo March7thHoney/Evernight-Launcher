@@ -7,7 +7,8 @@ actor GameServerAPI {
 
     private let session: URLSession = {
         let config = URLSessionConfiguration.default
-        config.timeoutIntervalForRequest = 30
+        config.timeoutIntervalForRequest = 8
+        config.timeoutIntervalForResource = 15
         return URLSession(configuration: config)
     }()
 
