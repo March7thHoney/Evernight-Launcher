@@ -22,6 +22,7 @@ class AppUpdater: NSObject, URLSessionDownloadDelegate {
     private var downloadTask: URLSessionDownloadTask?
     private var session: URLSession?
     private var continuation: CheckedContinuation<URL, Error>?
+    private var destinationURL: URL?
     
     override init() {
         super.init()
@@ -113,8 +114,12 @@ class AppUpdater: NSObject, URLSessionDownloadDelegate {
         let s = URLSession(configuration: config, delegate: self, delegateQueue: nil)
         self.session = s
         
+        let tempDir = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        let zipPath = tempDir.appendingPathComponent("update.zip")
+        self.destinationURL = zipPath
+        
         do {
-            let localURL: URL = try await withCheckedThrowingContinuation { [weak self] continuation in
+            _ = try await withCheckedThrowingContinuation { [weak self] continuation in
                 guard let self = self else { return }
                 self.continuation = continuation
                 let task = s.downloadTask(with: downloadURL)
@@ -126,12 +131,6 @@ class AppUpdater: NSObject, URLSessionDownloadDelegate {
                 updateProgress = 0.8
                 updateStatus = "Extracting update..."
             }
-            
-            let tempDir = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
-            try FileManager.default.createDirectory(at: tempDir, withIntermediateDirectories: true)
-            
-            let zipPath = tempDir.appendingPathComponent("update.zip")
-            try FileManager.default.moveItem(at: localURL, to: zipPath)
             
             // Extract the zip file
             let extractionDir = tempDir.appendingPathComponent("extracted")
@@ -222,9 +221,30 @@ class AppUpdater: NSObject, URLSessionDownloadDelegate {
     // MARK: - URLSessionDownloadDelegate
     
     func urlSession(_ session: URLSession, downloadTask: URLSessionDownloadTask, didFinishDownloadingTo location: URL) {
-        if let continuation = self.continuation {
-            self.continuation = nil
-            continuation.resume(returning: location)
+        let fm = FileManager.default
+        if let dest = self.destinationURL {
+            do {
+                try fm.createDirectory(at: dest.deletingLastPathComponent(), withIntermediateDirectories: true)
+                if fm.fileExists(atPath: dest.path) {
+                    try fm.removeItem(at: dest)
+                }
+                try fm.moveItem(at: location, to: dest)
+                
+                if let continuation = self.continuation {
+                    self.continuation = nil
+                    continuation.resume(returning: dest)
+                }
+            } catch {
+                if let continuation = self.continuation {
+                    self.continuation = nil
+                    continuation.resume(throwing: error)
+                }
+            }
+        } else {
+            if let continuation = self.continuation {
+                self.continuation = nil
+                continuation.resume(returning: location)
+            }
         }
     }
     
