@@ -51,6 +51,27 @@ struct SettingsView: View {
                             }
                             .controlSize(.small)
                         }
+                        
+                        Divider().opacity(0.5)
+                        
+                        Toggle(isOn: Binding(
+                            get: { gameManager.settings.runOldVersion },
+                            set: { newValue in
+                                gameManager.settings.runOldVersion = newValue
+                                gameManager.settings.save()
+                                Task {
+                                    await gameManager.checkAllGameStates()
+                                }
+                            }
+                        )) {
+                            VStack(alignment: .leading, spacing: 2) {
+                                Text("Allow Running Old Game Versions")
+                                    .font(.system(size: 13, weight: .medium))
+                                Text("Bypass automatic update checks and launch the game directly.")
+                                    .font(.caption)
+                                    .foregroundStyle(.secondary)
+                            }
+                        }
                     }
 
                     // Wine / GPTK
