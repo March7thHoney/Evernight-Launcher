@@ -111,9 +111,86 @@ struct SettingsView: View {
                         HStack {
                             Text("Version")
                             Spacer()
-                            Text("1.0.0")
+                            Text(AppUpdater.shared.currentVersion)
                                 .foregroundStyle(.secondary)
                         }
+                        
+                        Divider().opacity(0.4)
+                        
+                        VStack(alignment: .leading, spacing: 10) {
+                            HStack {
+                                Button {
+                                    Task {
+                                        _ = await AppUpdater.shared.checkForUpdates()
+                                    }
+                                } label: {
+                                    if AppUpdater.shared.isChecking {
+                                        HStack(spacing: 6) {
+                                            ProgressView().controlSize(.small)
+                                            Text("Checking…")
+                                        }
+                                    } else {
+                                        Text("Check for Updates")
+                                    }
+                                }
+                                .buttonStyle(.bordered)
+                                .controlSize(.small)
+                                .disabled(AppUpdater.shared.isChecking || AppUpdater.shared.isDownloading)
+                                
+                                Spacer()
+                                
+                                Text(AppUpdater.shared.updateStatus)
+                                    .font(.caption)
+                                    .foregroundStyle(.secondary)
+                            }
+                            
+                            if AppUpdater.shared.updateAvailable, let latest = AppUpdater.shared.latestVersion {
+                                VStack(alignment: .leading, spacing: 10) {
+                                    if let notes = AppUpdater.shared.releaseNotes, !notes.isEmpty {
+                                        VStack(alignment: .leading, spacing: 4) {
+                                            Text("What's New in v\(latest):")
+                                                .font(.caption.weight(.semibold))
+                                                .foregroundStyle(.primary)
+                                            ScrollView {
+                                                Text(notes)
+                                                    .font(.system(size: 11, design: .monospaced))
+                                                    .foregroundStyle(.secondary)
+                                                    .padding(8)
+                                                    .frame(maxWidth: .infinity, alignment: .leading)
+                                            }
+                                            .frame(maxHeight: 120)
+                                            .background(Color.black.opacity(0.2), in: RoundedRectangle(cornerRadius: 6))
+                                        }
+                                    }
+                                    
+                                    if AppUpdater.shared.isDownloading {
+                                        VStack(alignment: .leading, spacing: 4) {
+                                            ProgressView(value: AppUpdater.shared.updateProgress)
+                                                .progressViewStyle(.linear)
+                                                .tint(.accentColor)
+                                        }
+                                    } else {
+                                        Button {
+                                            Task {
+                                                await AppUpdater.shared.installUpdate()
+                                            }
+                                        } label: {
+                                            Label("Install Update", systemImage: "arrow.down.and.line.horizontal.and.arrow.up")
+                                                .font(.callout.weight(.medium))
+                                        }
+                                        .buttonStyle(.borderedProminent)
+                                        .controlSize(.small)
+                                    }
+                                }
+                                .padding(.top, 6)
+                                .transition(.opacity.combined(with: .move(edge: .top)))
+                            }
+                        }
+                        .animation(.easeInOut, value: AppUpdater.shared.updateAvailable)
+                        .animation(.easeInOut, value: AppUpdater.shared.isDownloading)
+                        
+                        Divider().opacity(0.4)
+                        
                         Text("A unified game launcher for macOS.")
                             .font(.caption)
                             .foregroundStyle(.secondary)

@@ -34,6 +34,7 @@ class GameManager {
         Task { await checkAllGameStates() }
         Task { await fetchAllBackgrounds() }
         Task { await checkWineStatus() }
+        Task { _ = await AppUpdater.shared.checkForUpdates(prompt: true) }
     }
 
     var currentGame: GameInfo {
