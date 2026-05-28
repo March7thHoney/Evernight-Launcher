@@ -285,7 +285,8 @@ class GameManager {
     // MARK: - Check All Game States (with version detection from Unity binaries)
 
     func checkAllGameStates() async {
-        for type in GameType.allCases {
+        let orderedTypes = [selectedGame] + GameType.allCases.filter { $0 != selectedGame }
+        for type in orderedTypes {
             let config = settings.config(for: type)
             if let dir = config.installDirectory, isGamePresent(type, at: dir) {
                 await MainActor.run {
@@ -526,11 +527,8 @@ class GameManager {
         await MainActor.run { gameStates[type] = .launching }
 
         var freePort = 8080
-        var privateServerCertRegPath: String?
-        var hdrRegPath: String?
-        var resRegPath: String?
-        var proxyRegPath: String?
-        var certRegPath: String?
+        var privateServerCertPath: String?
+        var launchRegistryPath: String?
         var batchPath: String?
         
         let prefix = WineManager.defaultPrefixPath
@@ -594,63 +592,41 @@ class GameManager {
                     throw NSError(domain: "ProxyManager", code: 404, userInfo: [NSLocalizedDescriptionKey: "Failed to start FireflyPS proxy: CA cert file not found at \(caCertPath)."])
                 }
                 
-                launchLog.info("[Phase 1] Importing Firefly CA cert into Wine prefix...")
-                guard let certPath = try await RegistryManager.importCertificate(
-                    at: caCertPath,
-                    wineManager: wineManager,
-                    prefix: prefix
-                ) else {
-                    throw NSError(domain: "ProxyManager", code: 500, userInfo: [NSLocalizedDescriptionKey: "Failed to import Firefly CA certificate into Wine prefix."])
-                }
-                privateServerCertRegPath = certPath
+                launchLog.info("[Phase 1] Firefly CA cert ready at \(caCertPath)")
+                privateServerCertPath = caCertPath
             }
 
             // ═══════════════════════════════════════════
             // PHASE 1: Pre-Launch Setup (Registry)
             // ═══════════════════════════════════════════
 
-            // 1b. Set Wine properties (RetinaMode, LeftCommandIsCtrl)
-            launchLog.info("[Phase 1] Setting Wine props (retina=\(config.retinaMode), leftCmd=\(config.leftCommandIsCtrl))")
-            try await wineManager.setProps(
+            // Build one registry file so Wine only starts regedit once.
+            var registryEntries: [RegistryManager.Entry] = []
+
+            launchLog.info("[Phase 1] Preparing launch registry (retina=\(config.retinaMode), leftCmd=\(config.leftCommandIsCtrl))")
+            registryEntries += RegistryManager.generateWinePropsRegistryEntries(
                 retinaMode: config.retinaMode,
-                leftCommandIsCtrl: config.leftCommandIsCtrl,
-                prefix: prefix
+                leftCommandIsCtrl: config.leftCommandIsCtrl
             )
 
-            // 1c. Set NV extension for HSR with DXMT
             if type == .honkaiStarRail && useDXMT {
-                launchLog.info("[Phase 1] Setting NV extension for HSR...")
-                try await wineManager.setNVExtension(prefix: prefix)
+                launchLog.info("[Phase 1] Adding NV extension registry for HSR...")
+                registryEntries += RegistryManager.generateNVExtensionRegistryEntries()
             }
 
-            // 1d. Apply HDR registry if enabled
             if config.enableHDR {
-                let hdrData = RegistryManager.generateHDRRegistry(gameType: type, enable: true)
-                hdrRegPath = try await RegistryManager.writeAndApply(
-                    data: hdrData,
-                    fileName: "hdr_\(type.rawValue).reg",
-                    wineManager: wineManager,
-                    prefix: prefix
-                )
+                registryEntries += RegistryManager.generateHDRRegistryEntries(gameType: type, enable: true)
             }
 
-            // 1c. Apply custom resolution registry if enabled
             if config.customResolution {
-                let resData = RegistryManager.generateResolutionRegistry(
+                registryEntries += RegistryManager.generateResolutionRegistryEntries(
                     gameType: type,
                     width: config.resolutionWidth,
                     height: config.resolutionHeight,
                     fullscreen: false
                 )
-                resRegPath = try await RegistryManager.writeAndApply(
-                    data: resData,
-                    fileName: "resolution_\(type.rawValue).reg",
-                    wineManager: wineManager,
-                    prefix: prefix
-                )
             }
 
-            // 1e. Apply proxy registry settings
             let isProxyEnabled = config.useFireflyPS || config.usePrivateServer || config.proxyEnabled
             let targetProxyHost: String
             if config.useFireflyPS {
@@ -661,23 +637,30 @@ class GameManager {
                 targetProxyHost = config.proxyHost
             }
             launchLog.info("[Phase 1] Configuring proxy registry (enabled=\(isProxyEnabled), host=\(targetProxyHost))...")
-            let proxyData = RegistryManager.generateProxyRegistry(enable: isProxyEnabled, proxyHost: targetProxyHost)
-            proxyRegPath = try await RegistryManager.writeAndApply(
-                data: proxyData,
-                fileName: "proxy_\(type.rawValue).reg",
+            registryEntries += RegistryManager.generateProxyRegistryEntries(enable: isProxyEnabled, proxyHost: targetProxyHost)
+
+            if let privateServerCertPath {
+                guard let entries = RegistryManager.certificateRegistryEntries(at: privateServerCertPath) else {
+                    throw NSError(domain: "ProxyManager", code: 500, userInfo: [NSLocalizedDescriptionKey: "Failed to parse Firefly CA certificate at \(privateServerCertPath)."])
+                }
+                registryEntries += entries
+            }
+
+            if isProxyEnabled {
+                launchLog.info("[Phase 1] Adding macOS Keychain certificates to launch registry...")
+                if let entries = await RegistryManager.macCertificateRegistryEntries() {
+                    registryEntries += entries
+                }
+            }
+
+            launchLog.info("[Phase 1] Applying combined registry (\(registryEntries.count) keys)...")
+            let registryData = RegistryManager.generateRegistryFile(entries: registryEntries)
+            launchRegistryPath = try await RegistryManager.writeAndApply(
+                data: registryData,
+                fileName: "launch_\(type.rawValue).reg",
                 wineManager: wineManager,
                 prefix: prefix
             )
-
-            // 1f. Import macOS trusted certificates if proxy is enabled
-            if isProxyEnabled {
-                launchLog.info("[Phase 1] Importing macOS Keychain certificates into Wine...")
-                certRegPath = try await RegistryManager.importMacCertificates(wineManager: wineManager, prefix: prefix)
-            }
-
-            // Wait for wineserver off before patching
-            launchLog.info("[Phase 1] Waiting for wineserver off...")
-            try await wineManager.waitForWineServerOff(prefix: prefix)
             launchLog.info("[Phase 1] Complete")
 
             // ═══════════════════════════════════════════
@@ -904,31 +887,13 @@ class GameManager {
             // PHASE 4: Post-Launch Cleanup
             // ═══════════════════════════════════════════
 
-            // 4a. Revert HDR registry
-            if let path = hdrRegPath {
+            // 4a. Remove temporary launch registry file
+            if let path = launchRegistryPath {
                 RegistryManager.revertRegistryFile(path: path)
-                hdrRegPath = nil
+                launchRegistryPath = nil
             }
 
-            // 4b. Revert resolution registry
-            if let path = resRegPath {
-                RegistryManager.revertRegistryFile(path: path)
-                resRegPath = nil
-            }
-
-            // Revert proxy registry temp file
-            if let path = proxyRegPath {
-                RegistryManager.revertRegistryFile(path: path)
-                proxyRegPath = nil
-            }
-
-            // Revert cert registry temp file
-            if let path = certRegPath {
-                RegistryManager.revertRegistryFile(path: path)
-                certRegPath = nil
-            }
-
-            // 4c. Restore removed files (crash reporters, vulkan-1.dll)
+            // 4b. Restore removed files (crash reporters, vulkan-1.dll)
             let filesToRestore = Self.filesToRemove(for: type)
             for file in filesToRestore {
                 let filePath = installDir + "/" + file
@@ -941,7 +906,7 @@ class GameManager {
                 }
             }
 
-            // 4d. Revert DXMT DLLs
+            // 4c. Revert DXMT DLLs
             if useDXMT {
                 try? DXMTManager.revertDXMTDLLs(
                     winePrefix: prefix,
@@ -950,13 +915,13 @@ class GameManager {
                 )
             }
 
-            // 4f. Clean up batch script
+            // 4d. Clean up batch script
             if let path = batchPath {
                 try? FileManager.default.removeItem(atPath: path)
                 batchPath = nil
             }
 
-            // 4g. Terminate FireflyPS Proxy & Server
+            // 4e. Terminate FireflyPS Proxy & Server
             if activeProxyProcess != nil {
                 launchLog.info("[Phase 4] Terminating FireflyPS proxy...")
                 activeProxyProcess?.terminate()
@@ -967,11 +932,6 @@ class GameManager {
                 activePSProcess?.terminate()
                 activePSProcess = nil
             }
-            if let path = privateServerCertRegPath {
-                RegistryManager.revertRegistryFile(path: path)
-                privateServerCertRegPath = nil
-            }
-
             launchLog.info("[Phase 4] Cleanup complete")
             launchLog.info("════════════════════════════════════════")
             await MainActor.run { gameStates[type] = .ready }
@@ -988,12 +948,9 @@ class GameManager {
                 activePSProcess = nil
             }
             
-            // Revert registry files
-            if let path = privateServerCertRegPath { RegistryManager.revertRegistryFile(path: path) }
-            if let path = hdrRegPath { RegistryManager.revertRegistryFile(path: path) }
-            if let path = resRegPath { RegistryManager.revertRegistryFile(path: path) }
-            if let path = proxyRegPath { RegistryManager.revertRegistryFile(path: path) }
-            if let path = certRegPath { RegistryManager.revertRegistryFile(path: path) }
+            if let path = launchRegistryPath {
+                RegistryManager.revertRegistryFile(path: path)
+            }
             
             // Clean up batch file
             if let path = batchPath {

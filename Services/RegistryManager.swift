@@ -4,10 +4,11 @@ import CryptoKit
 // MARK: - Registry Manager
 
 struct RegistryManager {
+    typealias Entry = (key: String, values: [(name: String, value: RegistryValue)])
 
     // MARK: - Generate UTF-16LE Registry File
 
-    static func generateRegistryFile(entries: [(key: String, values: [(name: String, value: RegistryValue)])]) -> Data {
+    static func generateRegistryFile(entries: [Entry]) -> Data {
         var content = "Windows Registry Editor Version 5.00\r\n\r\n"
 
         for entry in entries {
@@ -26,36 +27,83 @@ struct RegistryManager {
             content += "\r\n"
         }
 
-        // Encode as UTF-16LE with BOM
-        var data = Data([0xFF, 0xFE]) // UTF-16LE BOM
+        var data = Data([0xFF, 0xFE])
         if let encoded = content.data(using: .utf16LittleEndian) {
             data.append(encoded)
         }
         return data
     }
 
+    // MARK: - Wine Launch Registry
+
+    static func generateWinePropsRegistryEntries(retinaMode: Bool, leftCommandIsCtrl: Bool) -> [Entry] {
+        [
+            (
+                key: "HKEY_CURRENT_USER\\Software\\Wine\\Mac Driver",
+                values: [
+                    ("RetinaMode", .string(retinaMode ? "y" : "n")),
+                    ("LeftCommandIsCtrl", .string(leftCommandIsCtrl ? "y" : "n")),
+                ]
+            )
+        ]
+    }
+
+    static func generateNVExtensionRegistryEntries() -> [Entry] {
+        [
+            (
+                key: "HKEY_LOCAL_MACHINE\\SOFTWARE\\NVIDIA Corporation\\Global",
+                values: [("{41FCC608-8496-4DEF-B43E-7D9BD675A6FF}", .hex([0x01]))]
+            ),
+            (
+                key: "HKEY_LOCAL_MACHINE\\SYSTEM\\ControlSet001\\Services\\nvlddmkm",
+                values: [("{41FCC608-8496-4DEF-B43E-7D9BD675A6FF}", .hex([0x01]))]
+            ),
+            (
+                key: "HKEY_LOCAL_MACHINE\\SOFTWARE\\NVIDIA Corporation\\Global\\NGXCore",
+                values: [("FullPath", .string("C:\\Windows\\System32"))]
+            ),
+        ]
+    }
+
     // MARK: - HDR Registry
 
-    static func generateHDRRegistry(gameType: GameType, enable: Bool) -> Data {
-        let regKey: String
-        switch gameType {
-        case .genshinImpact:
-            regKey = "HKEY_CURRENT_USER\\Software\\\\x6d\\x69\\x48\\x6f\\x59\\x6f\\\\GenshinImpact"
-        case .honkaiStarRail:
-            regKey = "HKEY_CURRENT_USER\\Software\\Cognosphere\\Star Rail"
-        case .zenlessZoneZero:
-            regKey = "HKEY_CURRENT_USER\\Software\\miHoYo\\ZenlessZoneZero"
-        }
-
+    static func generateHDRRegistryEntries(gameType: GameType, enable: Bool) -> [Entry] {
         let hdrValue: UInt32 = enable ? 1 : 0
-        return generateRegistryFile(entries: [
-            (key: regKey, values: [
-                ("WINDOWS_HDR_ON_h3132281285", .dword(hdrValue))
-            ])
-        ])
+        return [
+            (
+                key: gameSettingsRegistryKey(for: gameType),
+                values: [("WINDOWS_HDR_ON_h3132281285", .dword(hdrValue))]
+            )
+        ]
+    }
+
+    static func generateHDRRegistry(gameType: GameType, enable: Bool) -> Data {
+        generateRegistryFile(entries: generateHDRRegistryEntries(gameType: gameType, enable: enable))
     }
 
     // MARK: - Custom Resolution Registry
+
+    static func generateResolutionRegistryEntries(
+        gameType: GameType,
+        width: Int,
+        height: Int,
+        fullscreen: Bool = false
+    ) -> [Entry] {
+        let widthBytes = withUnsafeBytes(of: Int32(width).littleEndian) { Array($0) }
+        let heightBytes = withUnsafeBytes(of: Int32(height).littleEndian) { Array($0) }
+        let fullscreenValue: UInt32 = fullscreen ? 1 : 0
+
+        return [
+            (
+                key: gameSettingsRegistryKey(for: gameType),
+                values: [
+                    ("Screenmanager Resolution Width_h182942802", .hex(widthBytes.map { UInt8($0) })),
+                    ("Screenmanager Resolution Height_h2627697771", .hex(heightBytes.map { UInt8($0) })),
+                    ("Screenmanager Is Fullscreen mode_h3981298716", .dword(fullscreenValue)),
+                ]
+            )
+        ]
+    }
 
     static func generateResolutionRegistry(
         gameType: GameType,
@@ -63,34 +111,20 @@ struct RegistryManager {
         height: Int,
         fullscreen: Bool = false
     ) -> Data {
-        let regKey: String
-        switch gameType {
-        case .genshinImpact:
-            regKey = "HKEY_CURRENT_USER\\Software\\\\x6d\\x69\\x48\\x6f\\x59\\x6f\\\\GenshinImpact"
-        case .honkaiStarRail:
-            regKey = "HKEY_CURRENT_USER\\Software\\Cognosphere\\Star Rail"
-        case .zenlessZoneZero:
-            regKey = "HKEY_CURRENT_USER\\Software\\miHoYo\\ZenlessZoneZero"
-        }
-
-        // Encode width/height as hex (little-endian int32)
-        let widthBytes = withUnsafeBytes(of: Int32(width).littleEndian) { Array($0) }
-        let heightBytes = withUnsafeBytes(of: Int32(height).littleEndian) { Array($0) }
-        let fullscreenValue: UInt32 = fullscreen ? 1 : 0
-
-        return generateRegistryFile(entries: [
-            (key: regKey, values: [
-                ("Screenmanager Resolution Width_h182942802", .hex(widthBytes.map { UInt8($0) })),
-                ("Screenmanager Resolution Height_h2627697771", .hex(heightBytes.map { UInt8($0) })),
-                ("Screenmanager Is Fullscreen mode_h3981298716", .dword(fullscreenValue)),
-            ])
-        ])
+        generateRegistryFile(
+            entries: generateResolutionRegistryEntries(
+                gameType: gameType,
+                width: width,
+                height: height,
+                fullscreen: fullscreen
+            )
+        )
     }
 
     // MARK: - DLL Override Registry
 
     static func generateDLLOverrideRegistry(dlls: [(name: String, mode: String)]) -> Data {
-        let values: [(String, RegistryValue)] = dlls.map { ($0.name, .string($0.mode)) }
+        let values: [(name: String, value: RegistryValue)] = dlls.map { ($0.name, .string($0.mode)) }
         return generateRegistryFile(entries: [
             (key: "HKEY_CURRENT_USER\\Software\\Wine\\DllOverrides", values: values)
         ])
@@ -113,17 +147,17 @@ struct RegistryManager {
         return filePath
     }
 
-    // MARK: - Revert Registry File (delete the temp file)
+    // MARK: - Revert Registry File
 
     static func revertRegistryFile(path: String) {
         try? FileManager.default.removeItem(atPath: path)
     }
 
     // MARK: - Proxy Registry
-    
-    static func generateProxyRegistry(enable: Bool, proxyHost: String) -> Data {
+
+    static func generateProxyRegistryEntries(enable: Bool, proxyHost: String) -> [Entry] {
         let regKey = "HKEY_CURRENT_USER\\Software\\Microsoft\\Windows\\CurrentVersion\\Internet Settings"
-        
+
         var values: [(name: String, value: RegistryValue)] = []
         if enable && !proxyHost.isEmpty {
             values.append(("ProxyEnable", .dword(1)))
@@ -132,75 +166,49 @@ struct RegistryManager {
         } else {
             values.append(("ProxyEnable", .dword(0)))
         }
-        
-        return generateRegistryFile(entries: [(key: regKey, values: values)])
+
+        return [(key: regKey, values: values)]
     }
 
-    // MARK: - Import macOS Root and User Certificates into Wine
-    
-    static func importMacCertificates(wineManager: WineManager, prefix: String) async throws -> String? {
-        // 1. Get PEM certificates from security command
+    static func generateProxyRegistry(enable: Bool, proxyHost: String) -> Data {
+        generateRegistryFile(entries: generateProxyRegistryEntries(enable: enable, proxyHost: proxyHost))
+    }
+
+    // MARK: - Certificate Registry
+
+    static func macCertificateRegistryEntries() async -> [Entry]? {
         guard let pemData = try? await ProcessRunner.runAndCapture(
             "/usr/bin/security",
             arguments: ["find-certificate", "-a", "-p"]
         ), let pemStr = String(data: pemData, encoding: .utf8) else {
-            print("[CertImport] ⚠️ Failed to export certificates using security command")
+            print("[CertImport] Failed to export certificates using security command")
             return nil
         }
-        
-        let components = pemStr.components(separatedBy: "-----BEGIN CERTIFICATE-----")
-        var entries: [(key: String, values: [(name: String, value: RegistryValue)])] = []
-        
-        for comp in components {
-            guard comp.contains("-----END CERTIFICATE-----") else { continue }
-            let parts = comp.components(separatedBy: "-----END CERTIFICATE-----")
-            guard let base64Str = parts.first else { continue }
-            
-            // Clean up base64 string
-            let cleanBase64 = base64Str.replacingOccurrences(of: "\n", with: "")
-                                        .replacingOccurrences(of: "\r", with: "")
-                                        .replacingOccurrences(of: " ", with: "")
-            
-            guard let derData = Data(base64Encoded: cleanBase64) else { continue }
-            
-            // Compute SHA-1
-            let hash = Insecure.SHA1.hash(data: derData)
-            let hashBytes = Array(hash)
-            let hashHex = hashBytes.map { String(format: "%02X", $0) }.joined()
-            
-            // Build Windows Registry Cert Blob
-            var blob = Data()
-            
-            // SHA-1 Hash Property (ID = 3)
-            blob.append(contentsOf: [0x03, 0x00, 0x00, 0x00])
-            blob.append(contentsOf: [0x01, 0x00, 0x00, 0x00])
-            blob.append(contentsOf: [0x14, 0x00, 0x00, 0x00])
-            blob.append(contentsOf: hashBytes)
-            
-            // Certificate DER Property (ID = 32)
-            blob.append(contentsOf: [0x20, 0x00, 0x00, 0x00])
-            blob.append(contentsOf: [0x01, 0x00, 0x00, 0x00])
-            let derLength = UInt32(derData.count)
-            let derLengthBytes = withUnsafeBytes(of: derLength.littleEndian) { Array($0) }
-            blob.append(contentsOf: derLengthBytes)
-            blob.append(derData)
-            
-            let blobBytes = Array(blob)
-            
-            // Add entries for Root and CA stores
-            let rootKey = "HKEY_CURRENT_USER\\Software\\Microsoft\\SystemCertificates\\Root\\Certificates\\\(hashHex)"
-            let caKey = "HKEY_CURRENT_USER\\Software\\Microsoft\\SystemCertificates\\CA\\Certificates\\\(hashHex)"
-            
-            entries.append((key: rootKey, values: [("Blob", .hex(blobBytes))]))
-            entries.append((key: caKey, values: [("Blob", .hex(blobBytes))]))
-        }
-        
+
+        let entries = certificateRegistryEntries(fromPEMString: pemStr)
         guard !entries.isEmpty else {
             print("[CertImport] No certificates parsed from macOS keychain")
             return nil
         }
-        
-        // Write all to a single reg file and apply
+
+        print("[CertImport] Parsed \(entries.count / 2) certificates from macOS keychain")
+        return entries
+    }
+
+    static func certificateRegistryEntries(at path: String) -> [Entry]? {
+        guard let fileData = try? Data(contentsOf: URL(fileURLWithPath: path)) else {
+            return nil
+        }
+
+        let entries = certificateRegistryEntries(fromCertificateData: fileData)
+        return entries.isEmpty ? nil : entries
+    }
+
+    static func importMacCertificates(wineManager: WineManager, prefix: String) async throws -> String? {
+        guard let entries = await macCertificateRegistryEntries() else {
+            return nil
+        }
+
         let regData = generateRegistryFile(entries: entries)
         let path = try await writeAndApply(
             data: regData,
@@ -211,73 +219,12 @@ struct RegistryManager {
         print("[CertImport] Successfully imported \(entries.count / 2) certificates from macOS to Wine prefix")
         return path
     }
-    
+
     static func importCertificate(at path: String, wineManager: WineManager, prefix: String) async throws -> String? {
-        guard let fileData = try? Data(contentsOf: URL(fileURLWithPath: path)) else {
+        guard let entries = certificateRegistryEntries(at: path) else {
             return nil
         }
-        
-        var derDataList: [Data] = []
-        
-        if let pemStr = String(data: fileData, encoding: .utf8),
-           pemStr.contains("-----BEGIN CERTIFICATE-----") {
-            let components = pemStr.components(separatedBy: "-----BEGIN CERTIFICATE-----")
-            for comp in components {
-                guard comp.contains("-----END CERTIFICATE-----") else { continue }
-                let parts = comp.components(separatedBy: "-----END CERTIFICATE-----")
-                guard let base64Str = parts.first else { continue }
-                
-                let cleanBase64 = base64Str.replacingOccurrences(of: "\n", with: "")
-                                            .replacingOccurrences(of: "\r", with: "")
-                                            .replacingOccurrences(of: " ", with: "")
-                
-                if let derData = Data(base64Encoded: cleanBase64) {
-                    derDataList.append(derData)
-                }
-            }
-        } else {
-            // Assume the file is already raw DER data
-            derDataList.append(fileData)
-        }
-        
-        guard !derDataList.isEmpty else { return nil }
-        
-        var entries: [(key: String, values: [(name: String, value: RegistryValue)])] = []
-        
-        for derData in derDataList {
-            // Compute SHA-1
-            let hash = Insecure.SHA1.hash(data: derData)
-            let hashBytes = Array(hash)
-            let hashHex = hashBytes.map { String(format: "%02X", $0) }.joined()
-            
-            // Build Windows Registry Cert Blob
-            var blob = Data()
-            
-            // SHA-1 Hash Property (ID = 3)
-            blob.append(contentsOf: [0x03, 0x00, 0x00, 0x00])
-            blob.append(contentsOf: [0x01, 0x00, 0x00, 0x00])
-            blob.append(contentsOf: [0x14, 0x00, 0x00, 0x00])
-            blob.append(contentsOf: hashBytes)
-            
-            // Certificate DER Property (ID = 32)
-            blob.append(contentsOf: [0x20, 0x00, 0x00, 0x00])
-            blob.append(contentsOf: [0x01, 0x00, 0x00, 0x00])
-            let derLength = UInt32(derData.count)
-            let derLengthBytes = withUnsafeBytes(of: derLength.littleEndian) { Array($0) }
-            blob.append(contentsOf: derLengthBytes)
-            blob.append(derData)
-            
-            let blobBytes = Array(blob)
-            
-            let rootKey = "HKEY_CURRENT_USER\\Software\\Microsoft\\SystemCertificates\\Root\\Certificates\\\(hashHex)"
-            let caKey = "HKEY_CURRENT_USER\\Software\\Microsoft\\SystemCertificates\\CA\\Certificates\\\(hashHex)"
-            
-            entries.append((key: rootKey, values: [("Blob", .hex(blobBytes))]))
-            entries.append((key: caKey, values: [("Blob", .hex(blobBytes))]))
-        }
-        
-        guard !entries.isEmpty else { return nil }
-        
+
         let regData = generateRegistryFile(entries: entries)
         return try await writeAndApply(
             data: regData,
@@ -285,6 +232,76 @@ struct RegistryManager {
             wineManager: wineManager,
             prefix: prefix
         )
+    }
+
+    private static func gameSettingsRegistryKey(for gameType: GameType) -> String {
+        switch gameType {
+        case .genshinImpact:
+            return "HKEY_CURRENT_USER\\Software\\\\x6d\\x69\\x48\\x6f\\x59\\x6f\\\\GenshinImpact"
+        case .honkaiStarRail:
+            return "HKEY_CURRENT_USER\\Software\\Cognosphere\\Star Rail"
+        case .zenlessZoneZero:
+            return "HKEY_CURRENT_USER\\Software\\miHoYo\\ZenlessZoneZero"
+        }
+    }
+
+    private static func certificateRegistryEntries(fromCertificateData fileData: Data) -> [Entry] {
+        if let pemStr = String(data: fileData, encoding: .utf8),
+           pemStr.contains("-----BEGIN CERTIFICATE-----") {
+            return certificateRegistryEntries(fromPEMString: pemStr)
+        }
+
+        return certificateRegistryEntries(fromDERDataList: [fileData])
+    }
+
+    private static func certificateRegistryEntries(fromPEMString pemStr: String) -> [Entry] {
+        let components = pemStr.components(separatedBy: "-----BEGIN CERTIFICATE-----")
+        let derDataList = components.compactMap { comp -> Data? in
+            guard comp.contains("-----END CERTIFICATE-----") else { return nil }
+            let parts = comp.components(separatedBy: "-----END CERTIFICATE-----")
+            guard let base64Str = parts.first else { return nil }
+
+            let cleanBase64 = base64Str
+                .replacingOccurrences(of: "\n", with: "")
+                .replacingOccurrences(of: "\r", with: "")
+                .replacingOccurrences(of: " ", with: "")
+
+            return Data(base64Encoded: cleanBase64)
+        }
+
+        return certificateRegistryEntries(fromDERDataList: derDataList)
+    }
+
+    private static func certificateRegistryEntries(fromDERDataList derDataList: [Data]) -> [Entry] {
+        var entries: [Entry] = []
+
+        for derData in derDataList {
+            let hash = Insecure.SHA1.hash(data: derData)
+            let hashBytes = Array(hash)
+            let hashHex = hashBytes.map { String(format: "%02X", $0) }.joined()
+
+            var blob = Data()
+            blob.append(contentsOf: [0x03, 0x00, 0x00, 0x00])
+            blob.append(contentsOf: [0x01, 0x00, 0x00, 0x00])
+            blob.append(contentsOf: [0x14, 0x00, 0x00, 0x00])
+            blob.append(contentsOf: hashBytes)
+
+            blob.append(contentsOf: [0x20, 0x00, 0x00, 0x00])
+            blob.append(contentsOf: [0x01, 0x00, 0x00, 0x00])
+            let derLength = UInt32(derData.count)
+            let derLengthBytes = withUnsafeBytes(of: derLength.littleEndian) { Array($0) }
+            blob.append(contentsOf: derLengthBytes)
+            blob.append(derData)
+
+            let blobBytes = Array(blob)
+            let rootKey = "HKEY_CURRENT_USER\\Software\\Microsoft\\SystemCertificates\\Root\\Certificates\\\(hashHex)"
+            let caKey = "HKEY_CURRENT_USER\\Software\\Microsoft\\SystemCertificates\\CA\\Certificates\\\(hashHex)"
+
+            entries.append((key: rootKey, values: [("Blob", .hex(blobBytes))]))
+            entries.append((key: caKey, values: [("Blob", .hex(blobBytes))]))
+        }
+
+        return entries
     }
 }
 
