@@ -534,10 +534,16 @@ class GameManager {
         let prefix = WineManager.defaultPrefixPath
         let launchLog = LaunchLogger(gameType: type)
         
-        let currentDistroId = settings.selectedWineDistribution
-        let currentDistro = WineManager.distributions.first { $0.id == currentDistroId }
-        let renderBackend = currentDistro?.renderBackend ?? "dxmt"
-        let useDXMT = config.enableDXMT && renderBackend == "dxmt"
+        let wineSourceMode = config.useGlobalWineSettings ? settings.wineSourceMode : config.wineSourceMode
+        let currentDistroId = config.useGlobalWineSettings ? settings.selectedWineDistribution : config.wineDistribution
+        let currentDistro: WineDistribution?
+        if wineSourceMode == .github {
+            currentDistro = WineManager.distributions.first { $0.id == currentDistroId }
+        } else {
+            currentDistro = nil
+        }
+        let renderBackend = currentDistro?.renderBackend ?? (wineSourceMode == .custom ? "custom" : "dxmt")
+        let useDXMT = config.enableDXMT && (renderBackend == "dxmt" || wineSourceMode == .custom)
 
         do {
             // Apply proper wine settings before launch
@@ -548,6 +554,7 @@ class GameManager {
             launchLog.info("Install dir: \(installDir)")
             launchLog.info("Wine binary: \(wineManager.getWineBinary())")
             launchLog.info("Wine mode: \(settings.config(for: type).useGlobalWineSettings ? "Global" : "Per-game custom")")
+            launchLog.info("Wine source: \(wineSourceMode.rawValue) (distribution: \(currentDistroId))")
             launchLog.info("Wine prefix: \(prefix)")
             launchLog.info("Render backend: \(renderBackend) (DXMT enabled: \(useDXMT))")
             launchLog.info("════════════════════════════════════════")
@@ -600,7 +607,7 @@ class GameManager {
             // PHASE 1: Pre-Launch Setup (Registry)
             // ═══════════════════════════════════════════
 
-            // Build one registry file so Wine only starts regedit once.
+            // Build one registry file so Wine imports launch settings once.
             var registryEntries: [RegistryManager.Entry] = []
 
             launchLog.info("[Phase 1] Preparing launch registry (retina=\(config.retinaMode), leftCmd=\(config.leftCommandIsCtrl))")
@@ -766,8 +773,7 @@ class GameManager {
             env["MTL_DEBUG_LAYER"] = "0"
             env["MTL_SHADER_VALIDATION"] = "0"
 
-            // Env is determined by wine.attributes.renderBackend
-            // useDXMT = config.enableDXMT && renderBackend == "dxmt"
+            // Env is determined by the effective Wine render backend.
             if useDXMT {
                 // DXMT mode
                 env["WINEDLLOVERRIDES"] = ""
