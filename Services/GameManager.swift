@@ -775,18 +775,10 @@ class GameManager {
 
             // Env is determined by the effective Wine render backend.
             if useDXMT {
-<<<<<<< HEAD
-                // DXMT mode
+// DXMT mode
                 env["WINEDLLOVERRIDES"] = ""
                 env["DXMT_LOG_PATH"] = baseDir
                 env["GST_PLUGIN_FEATURE_RANK"] = "atdec:MAX,avdec_h264:MAX"
-=======
-                // DXMT mode
-                env["WINEDLLOVERRIDES"] = ""
-                env["WINEMSYNC"] = "1"
-                env["DXMT_LOG_PATH"] = baseDir
-                env["GST_PLUGIN_FEATURE_RANK"] = "atdec:MAX,avdec_h264:MAX"
->>>>>>> 480cc230b5ab9906303080b44d548f1e1961e528
 
                 // Ensure dxmt.conf exists
                 let confPath = baseDir + "/dxmt.conf"
