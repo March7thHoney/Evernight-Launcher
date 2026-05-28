@@ -450,8 +450,11 @@ class WineManager {
         ) { code in
             WineError.registryFailed("reg import failed with exit code \(code)")
         }
+<<<<<<< HEAD
 
         try await waitForWineServerOff(prefix: pfx)
+=======
+>>>>>>> 480cc230b5ab9906303080b44d548f1e1961e528
     }
 
     // MARK: - NVIDIA Extension Registration
