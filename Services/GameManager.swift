@@ -133,36 +133,39 @@ class GameManager {
         return WineManager.basePath + "/" + folder
     }
 
-    func ensureProxyBinaryAvailable(config: GameConfig) async throws -> (proxyPath: String, psPath: String) {
+    func ensureProxyBinaryAvailable(config: GameConfig, requirePSServer: Bool) async throws -> (proxyPath: String, psPath: String) {
         let fm = FileManager.default
         let folderPath = proxyDirectoryPath
-        
+
         // Ensure folder directory exists
         try fm.createDirectory(atPath: folderPath, withIntermediateDirectories: true)
-        
+
         // Write/update accept_run.txt
         let acceptRunPath = folderPath + "/accept_run.txt"
         let acceptRunContent = config.privateServerAcceptRun
         try? acceptRunContent.write(toFile: acceptRunPath, atomically: true, encoding: .utf8)
-        
+
         let proxyPath = folderPath + "/firefly-go-proxy"
         let psPath = folderPath + "/" + (isArm ? "firefly-go_mac_arm" : "firefly-go_mac_x86")
-        
-        // If either is missing, download
+
+        // The redirect proxy is always required.
         if !fm.fileExists(atPath: proxyPath) {
             print("[Proxy] Proxy binary not found. Downloading...")
             try await downloadProxy()
         }
-        
-        if !fm.fileExists(atPath: psPath) {
+
+        // The bundled server is only needed for FireflyPS, not for external private servers.
+        if requirePSServer && !fm.fileExists(atPath: psPath) {
             print("[Proxy] PS Server binary not found. Downloading...")
             try await downloadPSServer()
         }
-        
+
         // Set permissions again
         try? fm.setAttributes([.posixPermissions: 0o755], ofItemAtPath: proxyPath)
-        try? fm.setAttributes([.posixPermissions: 0o755], ofItemAtPath: psPath)
-        
+        if fm.fileExists(atPath: psPath) {
+            try? fm.setAttributes([.posixPermissions: 0o755], ofItemAtPath: psPath)
+        }
+
         return (proxyPath: proxyPath, psPath: psPath)
     }
 
@@ -559,9 +562,15 @@ class GameManager {
             launchLog.info("Render backend: \(renderBackend) (DXMT enabled: \(useDXMT))")
             launchLog.info("════════════════════════════════════════")
 
-            // 0. Start FireflyPS Server and Proxy if enabled
-            if config.useFireflyPS || config.usePrivateServer {
-                let paths = try await ensureProxyBinaryAvailable(config: config)
+            // Clear any stale wineserver from a previous session first, otherwise an
+            // esync/msync mode mismatch crashes the Phase 1 registry import (reg import
+            // fails with exit code 8 / SIGFPE).
+            launchLog.info("[Phase 0] Clearing any stale wineserver...")
+            await wineManager.killWineServer(prefix: prefix)
+
+            // 0. Start the redirect proxy (bundled server only for FireflyPS) if enabled
+            if config.requiresRedirectProxy {
+                let paths = try await ensureProxyBinaryAvailable(config: config, requirePSServer: config.useFireflyPS)
                 
                 if config.useFireflyPS {
                     launchLog.info("[Phase 1] FireflyPS mode enabled. Preparing server & proxy...")
@@ -580,14 +589,15 @@ class GameManager {
                     // Give PS server a moment to start and bind to port 21000
                     try await Task.sleep(nanoseconds: 1_000_000_000)
                 } else {
-                    launchLog.info("[Phase 1] Private Server mode enabled. Preparing proxy...")
+                    let mode = config.useMarch7thHoney ? "March7thHoney" : "Private Server"
+                    launchLog.info("[Phase 1] \(mode) mode enabled. Preparing proxy...")
                 }
                 
                 // 0b. Launch Proxy
                 freePort = findFreePort()
                 let proxyProcess = Process()
                 proxyProcess.executableURL = URL(fileURLWithPath: paths.proxyPath)
-                let redirectHost = config.useFireflyPS ? "127.0.0.1:21000" : (config.privateServerAddress.isEmpty ? "127.0.0.1:21000" : config.privateServerAddress)
+                let redirectHost = config.proxyRedirectHost
                 proxyProcess.arguments = ["-no-sys", "-p", String(freePort), "-r", redirectHost]
                 proxyProcess.currentDirectoryURL = URL(fileURLWithPath: proxyDirectoryPath)
                 proxyProcess.standardOutput = FileHandle.nullDevice
@@ -640,9 +650,9 @@ class GameManager {
                 )
             }
 
-            let isProxyEnabled = config.useFireflyPS || config.usePrivateServer || config.proxyEnabled
+            let isProxyEnabled = config.requiresRedirectProxy || config.proxyEnabled
             let targetProxyHost: String
-            if config.useFireflyPS || config.usePrivateServer {
+            if config.requiresRedirectProxy {
                 targetProxyHost = "127.0.0.1:\(freePort)"
             } else {
                 targetProxyHost = config.proxyHost
@@ -813,7 +823,7 @@ class GameManager {
             }
 
             // Proxy
-            if config.useFireflyPS || config.usePrivateServer {
+            if config.requiresRedirectProxy {
                 env["HTTP_PROXY"] = "127.0.0.1:\(freePort)"
                 env["HTTPS_PROXY"] = "127.0.0.1:\(freePort)"
             } else if config.proxyEnabled && !config.proxyHost.isEmpty {

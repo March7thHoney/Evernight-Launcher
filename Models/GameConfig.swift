@@ -35,7 +35,9 @@ struct GameConfig: Codable, Equatable {
     // Private Server Settings
     var usePrivateServer: Bool = false
     var useFireflyPS: Bool = false
+    var useMarch7thHoney: Bool = false
     var privateServerAddress: String = "127.0.0.1:21000"
+    var march7thHoneyAddress: String = "127.0.0.1:21000"
     var customProxyPath: String = ""
     var privateServerAcceptRun: String = ""
 
@@ -73,6 +75,16 @@ struct GameConfig: Codable, Equatable {
         return URL(fileURLWithPath: dir)
     }
 
+    // Any mode that needs the redirect proxy started before launch.
+    var requiresRedirectProxy: Bool { usePrivateServer || useFireflyPS || useMarch7thHoney }
+
+    // The dispatch upstream the proxy redirects to.
+    var proxyRedirectHost: String {
+        if useFireflyPS { return "127.0.0.1:21000" }
+        let address = useMarch7thHoney ? march7thHoneyAddress : privateServerAddress
+        return address.isEmpty ? "127.0.0.1:21000" : address
+    }
+
     // MARK: - Codable & Initializers
     
     enum CodingKeys: String, CodingKey {
@@ -81,7 +93,7 @@ struct GameConfig: Codable, Equatable {
         case enableDXMT, installedDXMTVersion, metalHUD, enableHDR
         case customResolution, resolutionWidth, resolutionHeight
         case proxyEnabled, proxyHost, blockNetwork
-        case usePrivateServer, useFireflyPS, privateServerAddress, customProxyPath, privateServerAcceptRun
+        case usePrivateServer, useFireflyPS, useMarch7thHoney, privateServerAddress, march7thHoneyAddress, customProxyPath, privateServerAcceptRun
         case useSteamPatch, enableReShade, workaround3
         case winemsync
         case predownloadedAll
@@ -110,7 +122,9 @@ struct GameConfig: Codable, Equatable {
         self.blockNetwork = false
         self.usePrivateServer = false
         self.useFireflyPS = false
+        self.useMarch7thHoney = false
         self.privateServerAddress = "127.0.0.1:21000"
+        self.march7thHoneyAddress = "127.0.0.1:21000"
         self.customProxyPath = ""
         self.privateServerAcceptRun = ""
         self.useSteamPatch = false
@@ -149,7 +163,9 @@ struct GameConfig: Codable, Equatable {
         
         self.usePrivateServer = try container.decodeIfPresent(Bool.self, forKey: .usePrivateServer) ?? false
         self.useFireflyPS = try container.decodeIfPresent(Bool.self, forKey: .useFireflyPS) ?? false
+        self.useMarch7thHoney = try container.decodeIfPresent(Bool.self, forKey: .useMarch7thHoney) ?? false
         self.privateServerAddress = try container.decodeIfPresent(String.self, forKey: .privateServerAddress) ?? "127.0.0.1:21000"
+        self.march7thHoneyAddress = try container.decodeIfPresent(String.self, forKey: .march7thHoneyAddress) ?? "127.0.0.1:21000"
         self.customProxyPath = try container.decodeIfPresent(String.self, forKey: .customProxyPath) ?? ""
         self.privateServerAcceptRun = try container.decodeIfPresent(String.self, forKey: .privateServerAcceptRun) ?? ""
         

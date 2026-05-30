@@ -534,6 +534,20 @@ class WineManager {
         )
     }
 
+    // Force-kill any wineserver for this prefix. Used before a launch so a stale
+    // server from a previous session can't crash later wine clients via an
+    // esync/msync mode mismatch (manifests as reg import exit code 8 / SIGFPE).
+    func killWineServer(prefix: String? = nil) async {
+        let pfx = prefix ?? Self.defaultPrefixPath
+        let wineserverBin = getWineServerBinary()
+        guard fileManager.isExecutableFile(atPath: wineserverBin) else { return }
+        _ = try? await ProcessRunner.run(
+            wineserverBin,
+            arguments: ["-k"],
+            environment: ["WINEPREFIX": pfx]
+        )
+    }
+
     // MARK: - Open CMD Window
 
     func openCmdWindow(gameDir: String, prefix: String? = nil) async throws {

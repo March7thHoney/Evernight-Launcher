@@ -372,7 +372,30 @@ struct GameSettingsSheet: View {
                         }
                         
                         Divider().opacity(0.3)
-                        
+
+                        Toggle("Play on March7thHoney (Local Server)", isOn: Binding(
+                            get: { gameManager.settings.config(for: gameType).useMarch7thHoney },
+                            set: { newValue in
+                                gameManager.settings.updateConfig(for: gameType) { config in
+                                    config.useMarch7thHoney = newValue
+                                    if newValue {
+                                        config.useFireflyPS = false
+                                        config.usePrivateServer = false
+                                    }
+                                }
+                                gameManager.settings.save()
+                            }
+                        ))
+
+                        if gameManager.settings.config(for: gameType).useMarch7thHoney {
+                            TextField("March7thHoney Server Address", text: configBinding(\.march7thHoneyAddress))
+                            Text("Start the server first: run ./Start.command in the March7thHoney folder, then launch the game.")
+                                .font(.caption)
+                                .foregroundStyle(.secondary)
+                        }
+
+                        Divider().opacity(0.3)
+
                         Toggle("Run FireflyPS (Local Proxy Helper)", isOn: Binding(
                             get: { gameManager.settings.config(for: gameType).useFireflyPS },
                             set: { newValue in
@@ -380,13 +403,26 @@ struct GameSettingsSheet: View {
                                     config.useFireflyPS = newValue
                                     if newValue {
                                         config.usePrivateServer = false
+                                        config.useMarch7thHoney = false
                                     }
                                 }
                                 gameManager.settings.save()
                             }
                         ))
                         
-                        Toggle("Play on Private Server (Direct Connection)", isOn: configBinding(\.usePrivateServer))
+                        Toggle("Play on Private Server (Direct Connection)", isOn: Binding(
+                            get: { gameManager.settings.config(for: gameType).usePrivateServer },
+                            set: { newValue in
+                                gameManager.settings.updateConfig(for: gameType) { config in
+                                    config.usePrivateServer = newValue
+                                    if newValue {
+                                        config.useFireflyPS = false
+                                        config.useMarch7thHoney = false
+                                    }
+                                }
+                                gameManager.settings.save()
+                            }
+                        ))
                             .disabled(gameManager.settings.config(for: gameType).useFireflyPS)
                             .opacity(gameManager.settings.config(for: gameType).useFireflyPS ? 0.5 : 1.0)
                         
