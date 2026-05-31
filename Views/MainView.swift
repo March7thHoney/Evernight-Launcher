@@ -5,7 +5,7 @@ import SwiftUI
 struct MainView: View {
     @State private var gameManager = GameManager()
     @State private var showSettings = false
-    @State private var columnVisibility: NavigationSplitViewVisibility = .all
+    @State private var columnVisibility: NavigationSplitViewVisibility = .detailOnly
 
     var body: some View {
         @Bindable var gameManager = gameManager
