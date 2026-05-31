@@ -94,7 +94,7 @@ struct MainView: View {
     private var sidebar: some View {
         List(selection: $gameManager.selectedGame) {
             Section("Games") {
-                ForEach(GameType.allCases) { type in
+                ForEach(GameType.displayed) { type in
                     GameSidebarRow(
                         type: type,
                         state: gameManager.gameStates[type] ?? .notInstalled

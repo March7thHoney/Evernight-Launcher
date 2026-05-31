@@ -46,7 +46,12 @@ struct GameDetailView: View {
                     endPoint: .bottomTrailing
                 )
 
-                if let bgURL = game.launcherContent?.backgroundURL {
+                if type == .honkaiStarRail {
+                    Image("StarRailBackground")
+                        .resizable()
+                        .aspectRatio(contentMode: .fill)
+                        .transition(.opacity)
+                } else if let bgURL = game.launcherContent?.backgroundURL {
                     CachedAsyncImage(url: bgURL)
                         .transition(.opacity)
                 }

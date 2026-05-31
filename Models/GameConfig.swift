@@ -201,7 +201,7 @@ enum WineSourceMode: String, Codable, CaseIterable {
 // MARK: - Launcher Settings
 
 struct LauncherSettings: Codable {
-    var selectedGame: GameType = .genshinImpact
+    var selectedGame: GameType = .honkaiStarRail
     var gameConfigs: [GameType: GameConfig] = [:]
     var defaultDownloadDirectory: String = NSHomeDirectory() + "/Games"
     var language: String = "en"
@@ -239,7 +239,7 @@ struct LauncherSettings: Codable {
     }
 
     init() {
-        self.selectedGame = .genshinImpact
+        self.selectedGame = .honkaiStarRail
         self.gameConfigs = [:]
         self.defaultDownloadDirectory = NSHomeDirectory() + "/Games"
         self.language = "en"
@@ -251,7 +251,7 @@ struct LauncherSettings: Codable {
 
     init(from decoder: Decoder) throws {
         let container = try decoder.container(keyedBy: CodingKeys.self)
-        self.selectedGame = try container.decodeIfPresent(GameType.self, forKey: .selectedGame) ?? .genshinImpact
+        self.selectedGame = try container.decodeIfPresent(GameType.self, forKey: .selectedGame) ?? .honkaiStarRail
         self.gameConfigs = try container.decodeIfPresent([GameType: GameConfig].self, forKey: .gameConfigs) ?? [:]
         self.defaultDownloadDirectory = try container.decodeIfPresent(String.self, forKey: .defaultDownloadDirectory) ?? (NSHomeDirectory() + "/Games")
         self.language = try container.decodeIfPresent(String.self, forKey: .language) ?? "en"

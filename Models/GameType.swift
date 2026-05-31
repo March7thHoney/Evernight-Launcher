@@ -9,6 +9,10 @@ enum GameType: String, CaseIterable, Identifiable, Codable {
 
     var id: String { rawValue }
 
+    // Games actually exposed by this launcher. Only Honkai: Star Rail is offered;
+    // Genshin Impact and Zenless Zone Zero are intentionally not shown.
+    static let displayed: [GameType] = [.honkaiStarRail]
+
     var displayName: String {
         switch self {
         case .genshinImpact: return "Genshin Impact"

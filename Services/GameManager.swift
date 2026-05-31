@@ -20,7 +20,10 @@ class GameManager {
     init() {
         let settings = LauncherSettings.load()
         self.settings = settings
-        self.selectedGame = settings.selectedGame
+        // Only HSR is exposed; clamp any previously-persisted selection (e.g. Genshin) to a displayed game.
+        self.selectedGame = GameType.displayed.contains(settings.selectedGame)
+            ? settings.selectedGame
+            : (GameType.displayed.first ?? .honkaiStarRail)
 
         var gamesMap: [GameType: GameInfo] = [:]
         var statesMap: [GameType: GameState] = [:]
@@ -288,7 +291,7 @@ class GameManager {
     // MARK: - Check All Game States (with version detection from Unity binaries)
 
     func checkAllGameStates() async {
-        let orderedTypes = [selectedGame] + GameType.allCases.filter { $0 != selectedGame }
+        let orderedTypes = [selectedGame] + GameType.displayed.filter { $0 != selectedGame }
         for type in orderedTypes {
             let config = settings.config(for: type)
             if let dir = config.installDirectory, isGamePresent(type, at: dir) {
