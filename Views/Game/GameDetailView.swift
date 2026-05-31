@@ -80,7 +80,7 @@ struct GameDetailView: View {
 
     private var gameHeader: some View {
         VStack(alignment: .leading, spacing: 5) {
-            Text(game.type.displayName)
+            Text("Evernight Launcher")
                 .font(.system(size: 38, weight: .bold, design: .rounded))
                 .foregroundStyle(game.type.isDarkBackground ? .white : .black)
                 .shadow(color: game.type.isDarkBackground ? .black.opacity(0.5) : .white.opacity(0.3), radius: 6, y: 2)

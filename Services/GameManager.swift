@@ -37,7 +37,10 @@ class GameManager {
         Task { await checkAllGameStates() }
         Task { await fetchAllBackgrounds() }
         Task { await checkWineStatus() }
-        Task { _ = await AppUpdater.shared.checkForUpdates(prompt: true) }
+        // Auto update-check disabled: this is a customized fork; updating to the upstream
+        // Kafka-Launcher release would overwrite the customizations. The manual
+        // "Check for updates" button in Settings still works on demand.
+        // Task { _ = await AppUpdater.shared.checkForUpdates(prompt: true) }
     }
 
     var currentGame: GameInfo {
