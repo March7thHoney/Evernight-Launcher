@@ -22,3 +22,6 @@ xcuserdata/
 # Claude
 .claude
 CLAUDE.md
+
+# tmp
+tmp/
