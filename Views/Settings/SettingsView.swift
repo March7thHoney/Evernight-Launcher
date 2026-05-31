@@ -405,7 +405,7 @@ private struct WineSettingsSection: View {
                 }
             }
 
-            Text("Wine will be downloaded from GitHub (Gcenx/macOS_Wine_builds or 3Shain/wine) and installed into ~/.kafka-launcher/wine/")
+            Text("Wine will be downloaded from GitHub (Gcenx/macOS_Wine_builds or 3Shain/wine) and installed into ~/.evernight-launcher/wine/")
                 .font(.caption)
                 .foregroundStyle(.secondary)
         }
@@ -508,7 +508,7 @@ private struct WineSettingsSection: View {
         "/opt/homebrew/opt/game-porting-toolkit",
         "/Applications/CrossOver.app/Contents/SharedSupport/CrossOver",
         "/opt/homebrew",                                    // Homebrew wine64
-        NSHomeDirectory() + "/.kafka-launcher/wine",        // managed path
+        WineManager.winePath,                                // managed path
     ]
 
     private func pickCustomWineFolder() {

@@ -14,7 +14,7 @@ class WineManager {
 
     // MARK: - Constants
 
-    static let basePath = NSHomeDirectory() + "/.kafka-launcher"
+    static let basePath = NSHomeDirectory() + "/.evernight-launcher"
     static let winePath = basePath + "/wine"
     static let defaultPrefixPath = basePath + "/wineprefix"
     static let logsPath = basePath + "/logs"
