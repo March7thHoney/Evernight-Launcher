@@ -148,6 +148,22 @@ struct GameDetailView: View {
 
             Spacer()
 
+            // Open local FireflyGo folder (only when FireflyGo mode is enabled)
+            if gameManager.settings.config(for: type).useFireflyPS {
+                Button {
+                    let path = gameManager.proxyDirectoryPath
+                    // Ensure the folder exists so Finder can open it
+                    try? FileManager.default.createDirectory(atPath: path, withIntermediateDirectories: true)
+                    NSWorkspace.shared.open(URL(fileURLWithPath: path))
+                } label: {
+                    Image(systemName: "folder.fill")
+                        .font(.title3)
+                }
+                .buttonStyle(.borderless)
+                .foregroundStyle(.white)
+                .help("Open FireflyGo Folder")
+            }
+
             // Settings button
             if state == .ready || state == .notInstalled {
                 Button {
