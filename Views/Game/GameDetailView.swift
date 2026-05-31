@@ -14,9 +14,13 @@ struct GameDetailView: View {
         ZStack {
             backgroundLayer
 
-            // Top-left game info
-            VStack(alignment: .leading) {
-                gameHeader
+            // Top: title on the left, social links on the right
+            VStack {
+                HStack(alignment: .top) {
+                    gameHeader
+                    Spacer()
+                    socialLinks
+                }
                 Spacer()
             }
             .frame(maxWidth: .infinity, alignment: .leading)
@@ -85,28 +89,44 @@ struct GameDetailView: View {
                 .foregroundStyle(game.type.isDarkBackground ? .white : .black)
                 .shadow(color: game.type.isDarkBackground ? .black.opacity(0.5) : .white.opacity(0.3), radius: 6, y: 2)
 
-            if case .needsUpdate(let current, let latest) = state {
-                HStack(spacing: 4) {
-                    Text("v\(current)")
-                        .strikethrough()
-                        .foregroundStyle(game.type.isDarkBackground ? .white.opacity(0.4) : .black.opacity(0.4))
-                    Image(systemName: "arrow.right")
-                        .font(.system(size: 8))
-                        .foregroundStyle(.orange)
-                    Text("v\(latest)")
-                        .foregroundStyle(.orange)
-                }
-                .font(.system(size: 13))
-                .padding(.horizontal, 10)
-                .padding(.vertical, 4)
-                .background(.ultraThinMaterial, in: Capsule())
-            } else if let config = gameManager.settings.gameConfigs[type],
-                      let version = config.installedVersion {
-                Text("Version \(version)")
-                    .font(.system(size: 13))
-                    .foregroundStyle(game.type.isDarkBackground ? .white.opacity(0.7) : .black.opacity(0.6))
-            }
+            Text("Forked from Kafka Launcher")
+                .font(.system(size: 18, weight: .medium, design: .rounded))
+                .foregroundStyle((game.type.isDarkBackground ? Color.white : Color.black).opacity(0.9))
+                .shadow(color: game.type.isDarkBackground ? .black.opacity(0.45) : .white.opacity(0.3), radius: 4, y: 1)
         }
+    }
+
+    // MARK: - Social Links
+
+    private var socialLinks: some View {
+        HStack(spacing: 10) {
+            socialButton(asset: "DiscordLogo",
+                         url: "https://discord.gg/castoriceps",
+                         help: "Discord")
+            socialButton(asset: "GitHubLogo",
+                         url: "https://github.com/March7thHoney/Evernight-Launcher",
+                         help: "GitHub · Evernight Launcher")
+            socialButton(asset: "GitHubLogo",
+                         url: "https://github.com/Furiri443/Kafka-Launcher",
+                         help: "GitHub · Forked from Kafka Launcher")
+        }
+    }
+
+    private func socialButton(asset: String, url: String, help: String) -> some View {
+        Link(destination: URL(string: url)!) {
+            Image(asset)
+                .renderingMode(.template)
+                .resizable()
+                .scaledToFit()
+                .frame(width: 18, height: 18)
+                .foregroundStyle(.white)
+                .frame(width: 38, height: 38)
+                .background(.ultraThinMaterial, in: Circle())
+                .overlay(Circle().stroke(.white.opacity(0.25), lineWidth: 1))
+                .shadow(color: .black.opacity(0.25), radius: 4, y: 1)
+        }
+        .buttonStyle(.plain)
+        .help(help)
     }
 
     // MARK: - Bottom Bar
@@ -174,7 +194,7 @@ struct GameDetailView: View {
                 ProgressView()
                     .controlSize(.small)
             } else {
-                Label(state.actionLabel, systemImage: launchButtonIcon)
+                Label(launchButtonLabel, systemImage: launchButtonIcon)
                     .font(.system(size: 14, weight: .semibold))
                     .padding(.horizontal, 12)
                     .padding(.vertical, 4)
@@ -186,6 +206,15 @@ struct GameDetailView: View {
         .liquidGlassButton(color: type.accentColor)
         .disabled(!state.isActionable)
         .opacity(state.isActionable ? 1.0 : 0.5)
+    }
+
+    private var launchButtonLabel: String {
+        if state == .ready {
+            let config = gameManager.settings.config(for: type)
+            if config.useFireflyPS { return "Launch FireflyGo" }
+            if config.useMarch7thHoney { return "Launch March7thHoney" }
+        }
+        return state.actionLabel
     }
 
     private var launchButtonIcon: String {
