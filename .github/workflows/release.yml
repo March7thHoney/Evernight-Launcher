@@ -93,25 +93,25 @@ jobs:
         run: |
           # Package each built app using macOS ditto command to preserve permissions and symlinks
           ditto -c -k --sequesterRsrc --keepParent \
-            "$RUNNER_TEMP/kafka-launcher-build/Kafka-Launcher-x86_64.xcarchive/Products/Applications/Kafka-Launcher.app" \
-            Kafka-Launcher-Intel-x86_64.zip
+            "$RUNNER_TEMP/kafka-launcher-build/Kafka-Launcher-x86_64.xcarchive/Products/Applications/Evernight Launcher.app" \
+            Evernight-Launcher-Intel-x86_64.zip
             
           ditto -c -k --sequesterRsrc --keepParent \
-            "$RUNNER_TEMP/kafka-launcher-build/Kafka-Launcher-arm64.xcarchive/Products/Applications/Kafka-Launcher.app" \
-            Kafka-Launcher-AppleSilicon-arm64.zip
+            "$RUNNER_TEMP/kafka-launcher-build/Kafka-Launcher-arm64.xcarchive/Products/Applications/Evernight Launcher.app" \
+            Evernight-Launcher-AppleSilicon-arm64.zip
             
           ditto -c -k --sequesterRsrc --keepParent \
-            "$RUNNER_TEMP/kafka-launcher-build/Kafka-Launcher-Universal.xcarchive/Products/Applications/Kafka-Launcher.app" \
-            Kafka-Launcher-Universal.zip
+            "$RUNNER_TEMP/kafka-launcher-build/Kafka-Launcher-Universal.xcarchive/Products/Applications/Evernight Launcher.app" \
+            Evernight-Launcher-Universal.zip
 
       - name: Upload Build Artifacts (Actions Run)
         uses: actions/upload-artifact@v4
         with:
-          name: Kafka-Launcher-Builds
+          name: Evernight-Launcher-Builds
           path: |
-            Kafka-Launcher-Intel-x86_64.zip
-            Kafka-Launcher-AppleSilicon-arm64.zip
-            Kafka-Launcher-Universal.zip
+            Evernight-Launcher-Intel-x86_64.zip
+            Evernight-Launcher-AppleSilicon-arm64.zip
+            Evernight-Launcher-Universal.zip
 
       - name: Create GitHub Release and Upload Assets
         uses: softprops/action-gh-release@v2
@@ -119,9 +119,9 @@ jobs:
         with:
           tag_name: ${{ github.event.inputs.tag_name || github.ref_name }}
           files: |
-            Kafka-Launcher-Intel-x86_64.zip
-            Kafka-Launcher-AppleSilicon-arm64.zip
-            Kafka-Launcher-Universal.zip
+            Evernight-Launcher-Intel-x86_64.zip
+            Evernight-Launcher-AppleSilicon-arm64.zip
+            Evernight-Launcher-Universal.zip
           draft: false
           prerelease: false
           generate_release_notes: true

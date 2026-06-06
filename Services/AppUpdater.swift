@@ -86,7 +86,7 @@ class AppUpdater: NSObject, URLSessionDownloadDelegate {
                     }
                 } else {
                     self.updateAvailable = false
-                    self.updateStatus = "Kafka Launcher is up to date."
+                    self.updateStatus = "Evernight Launcher is up to date."
                 }
             }
             return isNewer && selectedDownloadURL != nil
@@ -318,7 +318,7 @@ class AppUpdater: NSObject, URLSessionDownloadDelegate {
         }
         let downloadedBundleID = info["CFBundleIdentifier"] as? String
         guard downloadedBundleID == currentBundleID else {
-            throw updaterError("The downloaded app bundle does not match Kafka Launcher.")
+            throw updaterError("The downloaded app bundle does not match Evernight Launcher.")
         }
 
         let downloadedVersion = (info["CFBundleShortVersionString"] as? String)?

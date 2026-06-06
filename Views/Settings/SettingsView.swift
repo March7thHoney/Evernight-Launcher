@@ -13,7 +13,7 @@ struct SettingsView: View {
         VStack(spacing: 0) {
             // Fixed header
             HStack {
-                Text("Kafka Launcher Settings")
+                Text("Evernight Launcher Settings")
                     .font(.headline)
                 Spacer()
                 Button("Done") { dismiss() }

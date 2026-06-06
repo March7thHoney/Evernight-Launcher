@@ -11,7 +11,7 @@ struct MainView: View {
         @Bindable var gameManager = gameManager
         NavigationSplitView(columnVisibility: $columnVisibility) {
             sidebar
-                .navigationTitle("Kafka")
+                .navigationTitle("Evernight")
                 .toolbar {
                     ToolbarItem(placement: .primaryAction) {
                         Button {
@@ -63,7 +63,7 @@ struct MainView: View {
         .overlay {
             if AppUpdater.shared.isDownloading {
                 VStack(spacing: 16) {
-                    Text("Updating Kafka Launcher...")
+                    Text("Updating Evernight Launcher...")
                         .font(.headline)
                         .foregroundStyle(.primary)
                     
