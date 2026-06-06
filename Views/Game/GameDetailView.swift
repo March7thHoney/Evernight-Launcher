@@ -176,21 +176,19 @@ struct GameDetailView: View {
                 .foregroundStyle(.white)
             }
 
-            // Locate existing game button
-            if state == .notInstalled {
-                Button {
-                    Task { await gameManager.locateGame(type) }
-                } label: {
-                    Label("Locate Game", systemImage: "folder")
-                        .font(.system(size: 13, weight: .medium))
-                        .padding(.horizontal, 8)
-                        .padding(.vertical, 4)
-                }
-                .buttonStyle(.plain)
-                .padding(.horizontal, 14)
-                .padding(.vertical, 8)
-                .liquidGlassButton(color: .white)
+            // Locate existing game button (always visible so the game directory can be re-pointed anytime)
+            Button {
+                Task { await gameManager.locateGame(type) }
+            } label: {
+                Label("Locate Game", systemImage: "folder")
+                    .font(.system(size: 13, weight: .medium))
+                    .padding(.horizontal, 8)
+                    .padding(.vertical, 4)
             }
+            .buttonStyle(.plain)
+            .padding(.horizontal, 14)
+            .padding(.vertical, 8)
+            .liquidGlassButton(color: .white)
 
             // Launch button
             launchButton
