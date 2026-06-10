@@ -70,11 +70,23 @@ enum ProcessRunner {
         let pipe = Pipe()
         process.standardOutput = pipe
         process.standardError = FileHandle.nullDevice
-        
+
+        // Drain stdout on a background thread *while* the process runs. Reading only
+        // after termination (readDataToEndOfFile after `run`) deadlocks whenever the
+        // child writes more than the OS pipe buffer (~64KB): the child blocks on
+        // write() waiting for a reader, while we block waiting for the child to exit.
+        // e.g. `security find-certificate -a -p` emits ~70KB once the keychain holds
+        // enough certificates, which froze the entire launch pipeline.
+        let readHandle = pipe.fileHandleForReading
+        async let captured: Data = withCheckedContinuation { continuation in
+            DispatchQueue.global(qos: .userInitiated).async {
+                continuation.resume(returning: readHandle.readDataToEndOfFile())
+            }
+        }
+
         try await run(process)
-        
-        let data = pipe.fileHandleForReading.readDataToEndOfFile()
-        return data
+
+        return await captured
     }
 
     /// Runs and throws if exit code != 0.
