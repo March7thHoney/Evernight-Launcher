@@ -49,9 +49,9 @@ class AppUpdater: NSObject, URLSessionDownloadDelegate {
         }
         
         do {
-            let url = URL(string: "https://api.github.com/repos/Furiri443/Kafka-Launcher/releases/latest")!
+            let url = URL(string: "https://api.github.com/repos/March7thHoney/Evernight-Launcher/releases/latest")!
             var request = URLRequest(url: url)
-            request.setValue("Kafka-Launcher-Updater", forHTTPHeaderField: "User-Agent")
+            request.setValue("Evernight-Launcher-Updater", forHTTPHeaderField: "User-Agent")
             request.setValue("application/json", forHTTPHeaderField: "Accept")
             
             let (data, response) = try await URLSession.shared.data(for: request)
