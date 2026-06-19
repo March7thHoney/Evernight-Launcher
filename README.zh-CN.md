@@ -35,15 +35,13 @@
 
 ## 私服
 
-启动器在 Wine 下启动官方崩坏：星穹铁道客户端，并通过本地 MITM 代理把它的 dispatch 流量重定向到私服。代理的 CA 证书会被导入 Wine prefix，使客户端的 HTTPS dispatch 校验通过；随后游戏连接到 dispatch 返回的网关。在 **崩坏：星穹铁道 → 设置 → Network** 中三选一（互斥）：
+启动器在 Wine 下启动官方崩坏：星穹铁道客户端，并通过本地 MITM 代理把它的 dispatch 流量重定向到私服。代理的 CA 证书会被导入 Wine prefix，使客户端的 HTTPS dispatch 校验通过；随后游戏连接到 dispatch 返回的网关。在 **崩坏：星穹铁道 → 设置 → Network** 中启用：
 
 | 模式 | 作用 |
 | :--- | :--- |
 | **Play on March7thHoney** | 把 dispatch 重定向到本地运行的 March7thHoney 服务端（`127.0.0.1:21000`）。请先自行启动服务端，再启动游戏。 |
-| **Run FireflyPS** | 下载并运行自带的 FireflyPS 服务端 + 代理。 |
-| **Play on Private Server** | 把代理指向任意自定义服务端地址。 |
 
-底部启动按钮会随所选模式变化（例如 *Launch March7thHoney* / *Launch FireflyGo*）。
+启用后底部启动按钮显示 *Launch March7thHoney*。
 
 > 登录使用你真实的国际服账号凭据，向官方 shield 端点校验（该端点不经代理）；只有进入游戏后的会话由私服提供。
 
@@ -113,7 +111,7 @@ Phase 4 — 启动后清理
 ```
 Evernight-Launcher/
 ├── Models/
-│   ├── GameConfig.swift          # 每游戏配置 + 私服模式（March7thHoney / FireflyPS / 自定义）
+│   ├── GameConfig.swift          # 每游戏配置 + 私服模式（March7thHoney）
 │   ├── GameInfo.swift            # 游戏元数据
 │   ├── GameState.swift           # 状态机（notInstalled、ready、running、updating…）
 │   └── GameType.swift            # 游戏枚举 + `displayed` 列表（仅崩坏：星穹铁道）

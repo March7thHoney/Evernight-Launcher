@@ -56,6 +56,9 @@ struct SettingsView: View {
                                        isInstallingWine: $isInstallingWine,
                                        installError: $installError)
 
+                    // Per-game settings (merged from the former game settings sheet)
+                    GameSettingsContent(gameManager: gameManager, gameType: gameManager.selectedGame)
+
                     // Games
                     settingsGroup("Games") {
                         ForEach(GameType.allCases) { type in
@@ -176,7 +179,7 @@ struct SettingsView: View {
                 .padding(20)
             }
         }
-        .frame(width: 520, height: 520)
+        .frame(width: 560, height: 640)
         .liquidGlassCard(cornerRadius: 16)
         .presentationBackground(.clear)
     }

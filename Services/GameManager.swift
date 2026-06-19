@@ -15,7 +15,6 @@ class GameManager {
     let wineManager = WineManager()
     let api = GameServerAPI.shared
     private var activeProxyProcess: Process?
-    private var activePSProcess: Process?
 
     init() {
         let settings = LauncherSettings.load()
@@ -139,20 +138,14 @@ class GameManager {
         return WineManager.basePath + "/" + folder
     }
 
-    func ensureProxyBinaryAvailable(config: GameConfig, requirePSServer: Bool) async throws -> (proxyPath: String, psPath: String) {
+    func ensureProxyBinaryAvailable() async throws -> String {
         let fm = FileManager.default
         let folderPath = proxyDirectoryPath
 
         // Ensure folder directory exists
         try fm.createDirectory(atPath: folderPath, withIntermediateDirectories: true)
 
-        // Write/update accept_run.txt
-        let acceptRunPath = folderPath + "/accept_run.txt"
-        let acceptRunContent = config.privateServerAcceptRun
-        try? acceptRunContent.write(toFile: acceptRunPath, atomically: true, encoding: .utf8)
-
         let proxyPath = folderPath + "/firefly-go-proxy"
-        let psPath = folderPath + "/" + (isArm ? "firefly-go_mac_arm" : "firefly-go_mac_x86")
 
         // The redirect proxy is bundled in the app (offline, self-contained — no download).
         let bundledName = isArm ? "firefly-go-proxy-macos-arm64" : "firefly-go-proxy-macos-amd64"
@@ -168,19 +161,10 @@ class GameManager {
             adhocSignBinary(proxyPath)
         }
 
-        // The bundled server is only needed for FireflyPS, not for external private servers.
-        if requirePSServer && !fm.fileExists(atPath: psPath) {
-            print("[Proxy] PS Server binary not found. Downloading...")
-            try await downloadPSServer()
-        }
-
         // Set permissions again
         try? fm.setAttributes([.posixPermissions: 0o755], ofItemAtPath: proxyPath)
-        if fm.fileExists(atPath: psPath) {
-            try? fm.setAttributes([.posixPermissions: 0o755], ofItemAtPath: psPath)
-        }
 
-        return (proxyPath: proxyPath, psPath: psPath)
+        return proxyPath
     }
 
     // Clear quarantine and ad-hoc re-sign a native binary copied out of the app bundle so macOS runs it.
@@ -195,105 +179,6 @@ class GameManager {
             try? p.run()
             p.waitUntilExit()
         }
-    }
-
-    func downloadProxy() async throws {
-        let apiURL = URL(string: "https://git.kain.io.vn/api/v1/repos/Firefly-Shelter/FireflyGo_Proxy/releases/latest")!
-        var request = URLRequest(url: apiURL)
-        request.setValue("application/json", forHTTPHeaderField: "Accept")
-        
-        let (data, response) = try await URLSession.shared.data(for: request)
-        
-        guard let httpResponse = response as? HTTPURLResponse, (200...299).contains(httpResponse.statusCode) else {
-            throw NSError(domain: "ProxyManager", code: 500, userInfo: [NSLocalizedDescriptionKey: "Failed to fetch latest release from FireflyGo_Proxy Gitea API."])
-        }
-        
-        struct GiteaRelease: Codable {
-            struct Asset: Codable {
-                let name: String
-                let browser_download_url: String
-            }
-            let assets: [Asset]
-        }
-        
-        let release = try JSONDecoder().decode(GiteaRelease.self, from: data)
-        let targetAssetName = isArm ? "firefly-go-proxy-macos-arm64" : "firefly-go-proxy-macos-amd64"
-        
-        guard let asset = release.assets.first(where: { $0.name == targetAssetName }),
-              let downloadURL = URL(string: asset.browser_download_url) else {
-            throw NSError(domain: "ProxyManager", code: 404, userInfo: [NSLocalizedDescriptionKey: "Could not find asset '\(targetAssetName)' in the latest release."])
-        }
-        
-        print("[Proxy] Downloading latest FireflyGo_Proxy asset: \(asset.name) from \(asset.browser_download_url)")
-        
-        let (downloadedLocation, downloadResponse) = try await URLSession.shared.download(from: downloadURL)
-        guard let downloadHttpResponse = downloadResponse as? HTTPURLResponse, (200...299).contains(downloadHttpResponse.statusCode) else {
-            throw NSError(domain: "ProxyManager", code: 500, userInfo: [NSLocalizedDescriptionKey: "Failed to download proxy from Gitea."])
-        }
-        
-        let fm = FileManager.default
-        let folderPath = proxyDirectoryPath
-        try fm.createDirectory(atPath: folderPath, withIntermediateDirectories: true)
-        
-        let destinationPath = folderPath + "/firefly-go-proxy"
-        let destinationURL = URL(fileURLWithPath: destinationPath)
-        
-        if fm.fileExists(atPath: destinationPath) {
-            try fm.removeItem(atPath: destinationPath)
-        }
-        try fm.moveItem(at: downloadedLocation, to: destinationURL)
-        try? fm.setAttributes([.posixPermissions: 0o755], ofItemAtPath: destinationPath)
-        print("[Proxy] Proxy downloaded successfully to \(destinationPath).")
-    }
-
-    func downloadPSServer() async throws {
-        let apiURL = URL(string: "https://git.kain.io.vn/api/v1/repos/Firefly-Shelter/FireflyGo_Local_Archive/releases/latest")!
-        var request = URLRequest(url: apiURL)
-        request.setValue("application/json", forHTTPHeaderField: "Accept")
-        
-        let (data, response) = try await URLSession.shared.data(for: request)
-        
-        guard let httpResponse = response as? HTTPURLResponse, (200...299).contains(httpResponse.statusCode) else {
-            throw NSError(domain: "ProxyManager", code: 500, userInfo: [NSLocalizedDescriptionKey: "Failed to fetch latest release from local archive Gitea API."])
-        }
-        
-        struct GiteaRelease: Codable {
-            struct Asset: Codable {
-                let name: String
-                let browser_download_url: String
-            }
-            let assets: [Asset]
-        }
-        
-        let release = try JSONDecoder().decode(GiteaRelease.self, from: data)
-        let targetAssetName = isArm ? "prebuild_mac_arm.zip" : "prebuild_mac_x86.zip"
-        
-        guard let asset = release.assets.first(where: { $0.name == targetAssetName }),
-              let downloadURL = URL(string: asset.browser_download_url) else {
-            throw NSError(domain: "ProxyManager", code: 404, userInfo: [NSLocalizedDescriptionKey: "Could not find asset '\(targetAssetName)' in the latest release."])
-        }
-        
-        print("[Proxy] Downloading latest local archive PS Server asset: \(asset.name) from \(asset.browser_download_url)")
-        
-        let (downloadedLocation, downloadResponse) = try await URLSession.shared.download(from: downloadURL)
-        guard let downloadHttpResponse = downloadResponse as? HTTPURLResponse, (200...299).contains(downloadHttpResponse.statusCode) else {
-            throw NSError(domain: "ProxyManager", code: 500, userInfo: [NSLocalizedDescriptionKey: "Failed to download PS Server archive from Gitea."])
-        }
-        
-        let folderPath = proxyDirectoryPath
-        try await downloadManager.extractArchive(at: downloadedLocation.path, to: folderPath)
-        print("[Proxy] PS Server downloaded and extracted successfully to \(folderPath).")
-    }
-
-    func downloadProxyArchive() async throws {
-        try await downloadProxy()
-        try await downloadPSServer()
-        
-        // Write accept_run.txt again just in case
-        let config = settings.config(for: selectedGame)
-        let acceptRunPath = proxyDirectoryPath + "/accept_run.txt"
-        try? config.privateServerAcceptRun.write(toFile: acceptRunPath, atomically: true, encoding: .utf8)
-        print("[Proxy] Both FireflyPS server and proxy downloaded successfully.")
     }
 
     // MARK: - Install Wine
@@ -596,35 +481,15 @@ class GameManager {
             launchLog.info("[Phase 0] Clearing any stale wineserver...")
             await wineManager.killWineServer(prefix: prefix)
 
-            // 0. Start the redirect proxy (bundled server only for FireflyPS) if enabled
+            // 0. Start the redirect proxy (March7thHoney) if enabled
             if config.requiresRedirectProxy {
-                let paths = try await ensureProxyBinaryAvailable(config: config, requirePSServer: config.useFireflyPS)
-                
-                if config.useFireflyPS {
-                    launchLog.info("[Phase 1] FireflyPS mode enabled. Preparing server & proxy...")
-                    
-                    // 0a. Launch PS Server
-                    let psProcess = Process()
-                    psProcess.executableURL = URL(fileURLWithPath: paths.psPath)
-                    psProcess.currentDirectoryURL = URL(fileURLWithPath: proxyDirectoryPath)
-                    psProcess.standardOutput = FileHandle.nullDevice
-                    psProcess.standardError = FileHandle.nullDevice
-                    
-                    launchLog.info("[Phase 1] Starting FireflyPS Server at \(paths.psPath)...")
-                    try psProcess.run()
-                    self.activePSProcess = psProcess
-                    
-                    // Give PS server a moment to start and bind to port 21000
-                    try await Task.sleep(nanoseconds: 1_000_000_000)
-                } else {
-                    let mode = config.useMarch7thHoney ? "March7thHoney" : "Private Server"
-                    launchLog.info("[Phase 1] \(mode) mode enabled. Preparing proxy...")
-                }
-                
+                let proxyPath = try await ensureProxyBinaryAvailable()
+                launchLog.info("[Phase 1] March7thHoney mode enabled. Preparing proxy...")
+
                 // 0b. Launch Proxy
                 freePort = findFreePort()
                 let proxyProcess = Process()
-                proxyProcess.executableURL = URL(fileURLWithPath: paths.proxyPath)
+                proxyProcess.executableURL = URL(fileURLWithPath: proxyPath)
                 let redirectHost = config.proxyRedirectHost
                 proxyProcess.arguments = ["-no-sys", "-p", String(freePort), "-r", redirectHost]
                 proxyProcess.currentDirectoryURL = URL(fileURLWithPath: proxyDirectoryPath)
@@ -639,7 +504,7 @@ class GameManager {
                     proxyProcess.standardError = FileHandle.nullDevice
                 }
 
-                launchLog.info("[Phase 1] Starting FireflyPS Proxy at port \(freePort) redirecting to \(redirectHost)...")
+                launchLog.info("[Phase 1] Starting proxy at port \(freePort) redirecting to \(redirectHost)...")
                 try proxyProcess.run()
                 self.activeProxyProcess = proxyProcess
                 
@@ -648,7 +513,7 @@ class GameManager {
                 
                 let caCertPath = proxyDirectoryPath + "/firefly-go-proxy-ca.crt"
                 guard FileManager.default.fileExists(atPath: caCertPath) else {
-                    throw NSError(domain: "ProxyManager", code: 404, userInfo: [NSLocalizedDescriptionKey: "Failed to start FireflyPS proxy: CA cert file not found at \(caCertPath)."])
+                    throw NSError(domain: "ProxyManager", code: 404, userInfo: [NSLocalizedDescriptionKey: "Failed to start proxy: CA cert file not found at \(caCertPath)."])
                 }
                 
                 launchLog.info("[Phase 1] Firefly CA cert ready at \(caCertPath)")
@@ -995,16 +860,11 @@ class GameManager {
                 batchPath = nil
             }
 
-            // 4e. Terminate FireflyPS Proxy & Server
+            // 4e. Terminate proxy
             if activeProxyProcess != nil {
-                launchLog.info("[Phase 4] Terminating FireflyPS proxy...")
+                launchLog.info("[Phase 4] Terminating proxy...")
                 activeProxyProcess?.terminate()
                 activeProxyProcess = nil
-            }
-            if activePSProcess != nil {
-                launchLog.info("[Phase 4] Terminating FireflyPS server...")
-                activePSProcess?.terminate()
-                activePSProcess = nil
             }
             launchLog.info("[Phase 4] Cleanup complete")
             launchLog.info("════════════════════════════════════════")
@@ -1012,16 +872,12 @@ class GameManager {
         } catch {
             print("[LaunchGame] ❌ ERROR: \(error.localizedDescription)")
             
-            // Clean up proxy & server processes
+            // Clean up proxy process
             if activeProxyProcess != nil {
                 activeProxyProcess?.terminate()
                 activeProxyProcess = nil
             }
-            if activePSProcess != nil {
-                activePSProcess?.terminate()
-                activePSProcess = nil
-            }
-            
+
             if let path = launchRegistryPath {
                 RegistryManager.revertRegistryFile(path: path)
             }

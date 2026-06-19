@@ -38,15 +38,13 @@ Genshin Impact and Zenless Zone Zero (present in the upstream launcher) are inte
 The launcher starts the official Honkai: Star Rail client under Wine and redirects its dispatch
 traffic to a private server through a local MITM proxy. The proxy's CA certificate is imported into
 the Wine prefix so the client's HTTPS dispatch validates; the game then connects to the gateway the
-dispatch returns. Pick one mode in **Honkai: Star Rail → Settings → Network** (mutually exclusive):
+dispatch returns. Enable it in **Honkai: Star Rail → Settings → Network**:
 
 | Mode | What it does |
 | :--- | :--- |
 | **Play on March7thHoney** | Redirects dispatch to a March7thHoney server running locally (`127.0.0.1:21000`). Start the server yourself first, then launch the game. |
-| **Run FireflyPS** | Downloads and runs the bundled FireflyPS server + proxy. |
-| **Play on Private Server** | Points the proxy at any custom server address. |
 
-The launch button reflects the selected mode (e.g. *Launch March7thHoney* / *Launch FireflyGo*).
+The launch button shows *Launch March7thHoney* when enabled.
 
 > Logging in uses your real overseas account credentials against the official shield endpoint
 > (which is not proxied); only the in-game session is served by the private server.
@@ -117,7 +115,7 @@ Uses its own data directory (`~/.evernight-launcher`) and bundle identifier (`co
 ```
 Evernight-Launcher/
 ├── Models/
-│   ├── GameConfig.swift          # Per-game config + private-server modes (March7thHoney / FireflyPS / custom)
+│   ├── GameConfig.swift          # Per-game config + private-server mode (March7thHoney)
 │   ├── GameInfo.swift            # Game metadata
 │   ├── GameState.swift           # State machine (notInstalled, ready, running, updating…)
 │   └── GameType.swift            # Game enum + `displayed` list (Honkai: Star Rail only)

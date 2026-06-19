@@ -4,7 +4,6 @@ import SwiftUI
 
 struct GameDetailView: View {
     @Bindable var gameManager: GameManager
-    @State private var showGameSettings = false
 
     private var game: GameInfo { gameManager.currentGame }
     private var state: GameState { gameManager.currentState }
@@ -34,9 +33,6 @@ struct GameDetailView: View {
                     .padding(.horizontal, 24)
                     .padding(.bottom, 20)
             }
-        }
-        .sheet(isPresented: $showGameSettings) {
-            GameSettingsSheet(gameManager: gameManager, gameType: type)
         }
     }
 
@@ -148,34 +144,6 @@ struct GameDetailView: View {
 
             Spacer()
 
-            // Open local FireflyGo folder (only when FireflyGo mode is enabled)
-            if gameManager.settings.config(for: type).useFireflyPS {
-                Button {
-                    let path = gameManager.proxyDirectoryPath
-                    // Ensure the folder exists so Finder can open it
-                    try? FileManager.default.createDirectory(atPath: path, withIntermediateDirectories: true)
-                    NSWorkspace.shared.open(URL(fileURLWithPath: path))
-                } label: {
-                    Image(systemName: "folder.fill")
-                        .font(.title3)
-                }
-                .buttonStyle(.borderless)
-                .foregroundStyle(.white)
-                .help("Open FireflyGo Folder")
-            }
-
-            // Settings button
-            if state == .ready || state == .notInstalled {
-                Button {
-                    showGameSettings = true
-                } label: {
-                    Image(systemName: "gearshape.fill")
-                        .font(.title3)
-                }
-                .buttonStyle(.borderless)
-                .foregroundStyle(.white)
-            }
-
             // Locate existing game button (always visible so the game directory can be re-pointed anytime)
             Button {
                 Task { await gameManager.locateGame(type) }
@@ -225,7 +193,6 @@ struct GameDetailView: View {
     private var launchButtonLabel: String {
         if state == .ready {
             let config = gameManager.settings.config(for: type)
-            if config.useFireflyPS { return "Launch FireflyGo" }
             if config.useMarch7thHoney { return "Launch March7thHoney" }
         }
         return state.actionLabel
@@ -245,30 +212,12 @@ struct GameDetailView: View {
 
 // MARK: - Game Settings Sheet
 
-struct GameSettingsSheet: View {
+struct GameSettingsContent: View {
     @Bindable var gameManager: GameManager
     let gameType: GameType
-    @Environment(\.dismiss) private var dismiss
 
     var body: some View {
-        VStack(spacing: 0) {
-            // Fixed header - always visible
-            HStack {
-                Text("\(gameType.displayName) Settings")
-                    .font(.headline)
-                Spacer()
-                Button("Done") { dismiss() }
-                    .keyboardShortcut(.defaultAction)
-            }
-            .padding(.horizontal, 20)
-            .padding(.vertical, 14)
-            .background(Color.black.opacity(0.2))
-
-            Divider()
-
-            // Scrollable custom form content
-            ScrollView {
-                VStack(alignment: .leading, spacing: 20) {
+        VStack(alignment: .leading, spacing: 20) {
                     settingsGroup("Installation") {
                         if gameManager.currentState == .ready {
                             Button("Check Integrity") {
@@ -404,10 +353,6 @@ struct GameSettingsSheet: View {
                             set: { newValue in
                                 gameManager.settings.updateConfig(for: gameType) { config in
                                     config.useMarch7thHoney = newValue
-                                    if newValue {
-                                        config.useFireflyPS = false
-                                        config.usePrivateServer = false
-                                    }
                                 }
                                 gameManager.settings.save()
                             }
@@ -435,81 +380,6 @@ struct GameSettingsSheet: View {
 
                         Divider().opacity(0.3)
 
-                        Toggle("Run FireflyPS (Local Proxy Helper)", isOn: Binding(
-                            get: { gameManager.settings.config(for: gameType).useFireflyPS },
-                            set: { newValue in
-                                gameManager.settings.updateConfig(for: gameType) { config in
-                                    config.useFireflyPS = newValue
-                                    if newValue {
-                                        config.usePrivateServer = false
-                                        config.useMarch7thHoney = false
-                                    }
-                                }
-                                gameManager.settings.save()
-                            }
-                        ))
-                        
-                        Toggle("Play on Private Server (Direct Connection)", isOn: Binding(
-                            get: { gameManager.settings.config(for: gameType).usePrivateServer },
-                            set: { newValue in
-                                gameManager.settings.updateConfig(for: gameType) { config in
-                                    config.usePrivateServer = newValue
-                                    if newValue {
-                                        config.useFireflyPS = false
-                                        config.useMarch7thHoney = false
-                                    }
-                                }
-                                gameManager.settings.save()
-                            }
-                        ))
-                            .disabled(gameManager.settings.config(for: gameType).useFireflyPS)
-                            .opacity(gameManager.settings.config(for: gameType).useFireflyPS ? 0.5 : 1.0)
-                        
-                        if gameManager.settings.config(for: gameType).useFireflyPS {
-                            TextField("Private Server Address", text: .constant("127.0.0.1:21000"))
-                                .disabled(true)
-                                .foregroundStyle(.secondary)
-                        } else if gameManager.settings.config(for: gameType).usePrivateServer {
-                            TextField("Private Server Address", text: configBinding(\.privateServerAddress))
-                        }
-                        
-                        if gameManager.settings.config(for: gameType).useFireflyPS {
-                            TextField("Accept Run Code", text: configBinding(\.privateServerAcceptRun))
-                            
-                            HStack {
-                                Button {
-                                    let path = gameManager.proxyDirectoryPath
-                                    // Ensure directory exists so Finder can open it
-                                    try? FileManager.default.createDirectory(atPath: path, withIntermediateDirectories: true)
-                                    NSWorkspace.shared.open(URL(fileURLWithPath: path))
-                                } label: {
-                                    Label("Show in Finder", systemImage: "folder")
-                                }
-                                .controlSize(.small)
-                                .buttonStyle(.bordered)
-                                
-                                Button {
-                                    Task {
-                                        do {
-                                            try await gameManager.downloadProxyArchive()
-                                        } catch {
-                                            print("Failed to download proxy: \(error)")
-                                        }
-                                    }
-                                } label: {
-                                    Label("Download/Update Proxy", systemImage: "arrow.down.circle")
-                                }
-                                .controlSize(.small)
-                                .buttonStyle(.borderedProminent)
-                            }
-                            
-                            Text("Note: The proxy server is downloaded and run automatically on game launch. Click 'Show in Finder' to reveal the folder.")
-                                .font(.caption)
-                                .foregroundStyle(.secondary)
-                        }
-                        
-                        Divider().opacity(0.3)
-                        
                         Toggle("Block Network (Anti-Cheat)", isOn: configBinding(\.blockNetwork))
                     }
 
@@ -518,13 +388,7 @@ struct GameSettingsSheet: View {
                         Toggle("Steam Emulation", isOn: configBinding(\.useSteamPatch))
                         Toggle("ReShade", isOn: configBinding(\.enableReShade))
                     }
-                }
-                .padding(20)
-            }
         }
-        .frame(width: 500, height: 600)
-        .liquidGlassCard(cornerRadius: 16)
-        .presentationBackground(.clear)
     }
 
     private func settingsGroup<Content: View>(_ title: String, @ViewBuilder content: () -> Content) -> some View {
