@@ -436,10 +436,23 @@ struct GameSettingsSheet: View {
                         ))
 
                         if gameManager.settings.config(for: gameType).useMarch7thHoney {
-                            TextField("March7thHoney Server Address", text: configBinding(\.march7thHoneyAddress))
-                            Text("Start the server first: run ./Start.command in the March7thHoney folder, then launch the game.")
-                                .font(.caption)
-                                .foregroundStyle(.secondary)
+                            Picker("Server", selection: configBinding(\.march7thServerPreset)) {
+                                ForEach(GameConfig.March7thServerPreset.allCases) { preset in
+                                    Text(preset.displayName).tag(preset)
+                                }
+                            }
+                            switch gameManager.settings.config(for: gameType).march7thServerPreset {
+                            case .custom:
+                                TextField("Server URL (e.g. https://example.com)", text: configBinding(\.march7thHoneyAddress))
+                            case .local:
+                                Text("Start the server first: run ./Start.command in the March7thHoney folder, then launch the game.")
+                                    .font(.caption)
+                                    .foregroundStyle(.secondary)
+                            case .hoyotoon:
+                                Text("Connects to the online hoyotoon server.")
+                                    .font(.caption)
+                                    .foregroundStyle(.secondary)
+                            }
                         }
 
                         Divider().opacity(0.3)

@@ -155,12 +155,14 @@ class GameManager {
         let psPath = folderPath + "/" + (isArm ? "firefly-go_mac_arm" : "firefly-go_mac_x86")
 
         // The redirect proxy is bundled in the app (offline, self-contained — no download).
-        if !fm.fileExists(atPath: proxyPath) {
-            let bundledName = isArm ? "firefly-go-proxy-macos-arm64" : "firefly-go-proxy-macos-amd64"
-            guard let bundled = Bundle.main.resourceURL?.appendingPathComponent(bundledName).path,
-                  fm.fileExists(atPath: bundled) else {
-                throw NSError(domain: "ProxyManager", code: 404, userInfo: [NSLocalizedDescriptionKey: "Bundled proxy \(bundledName) not found in app."])
-            }
+        let bundledName = isArm ? "firefly-go-proxy-macos-arm64" : "firefly-go-proxy-macos-amd64"
+        guard let bundled = Bundle.main.resourceURL?.appendingPathComponent(bundledName).path,
+              fm.fileExists(atPath: bundled) else {
+            throw NSError(domain: "ProxyManager", code: 404, userInfo: [NSLocalizedDescriptionKey: "Bundled proxy \(bundledName) not found in app."])
+        }
+        // Refresh whenever the deployed copy differs (a launcher update can ship a new proxy of identical size, so compare bytes not just existence).
+        if !fm.contentsEqual(atPath: bundled, andPath: proxyPath) {
+            try? fm.removeItem(atPath: proxyPath)
             try fm.copyItem(atPath: bundled, toPath: proxyPath)
             try? fm.setAttributes([.posixPermissions: 0o755], ofItemAtPath: proxyPath)
             adhocSignBinary(proxyPath)
@@ -626,8 +628,16 @@ class GameManager {
                 let redirectHost = config.proxyRedirectHost
                 proxyProcess.arguments = ["-no-sys", "-p", String(freePort), "-r", redirectHost]
                 proxyProcess.currentDirectoryURL = URL(fileURLWithPath: proxyDirectoryPath)
-                proxyProcess.standardOutput = FileHandle.nullDevice
-                proxyProcess.standardError = FileHandle.nullDevice
+                // Capture firefly output to a log so launch failures (forwarding, TLS) are diagnosable.
+                let fireflyLogPath = WineManager.logsPath + "/firefly.log"
+                FileManager.default.createFile(atPath: fireflyLogPath, contents: nil)
+                if let fh = FileHandle(forWritingAtPath: fireflyLogPath) {
+                    proxyProcess.standardOutput = fh
+                    proxyProcess.standardError = fh
+                } else {
+                    proxyProcess.standardOutput = FileHandle.nullDevice
+                    proxyProcess.standardError = FileHandle.nullDevice
+                }
 
                 launchLog.info("[Phase 1] Starting FireflyPS Proxy at port \(freePort) redirecting to \(redirectHost)...")
                 try proxyProcess.run()
@@ -862,6 +872,12 @@ class GameManager {
             } else if config.proxyEnabled && !config.proxyHost.isEmpty {
                 env["HTTP_PROXY"] = config.proxyHost
                 env["HTTPS_PROXY"] = config.proxyHost
+            }
+
+            // March7thHoney: tell the injected patch which server to use (webview redirect) and route its in-process WinHTTP through firefly so any server (local or online) works.
+            if config.useMarch7thHoney && type == .honkaiStarRail {
+                env["CYRENE_WEB_TARGET"] = config.march7thHoneyTargetURL
+                env["CYRENE_PROXY"] = "127.0.0.1:\(freePort)"
             }
 
             // GStreamer (if not already set)
