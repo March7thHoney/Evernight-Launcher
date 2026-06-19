@@ -43,8 +43,6 @@
 
 启用后底部启动按钮显示 *Launch March7thHoney*。
 
-> 登录使用你真实的国际服账号凭据，向官方 shield 端点校验（该端点不经代理）；只有进入游戏后的会话由私服提供。
-
 ---
 
 ## 功能特性
@@ -140,6 +138,7 @@ Evernight-Launcher/
 - **[Jadeite](https://github.com/an-anime-team/jadeite)** —— 崩坏：星穹铁道的反作弊包装器
 - **[xdelta3](http://xdelta.org/)** —— 二进制增量补丁
 - **[YAGL](https://github.com/yaagl/yet-another-anime-game-launcher)** —— Kafka-Launcher 所基于的启动器
+- **[FireflyGo Proxy](https://github.com/AzenKain/FireflyGo_Proxy)** —— AzenKain 的本地 MITM 重定向代理
 
 ---
 

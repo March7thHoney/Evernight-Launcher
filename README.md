@@ -46,9 +46,6 @@ dispatch returns. Enable it in **Honkai: Star Rail → Settings → Network**:
 
 The launch button shows *Launch March7thHoney* when enabled.
 
-> Logging in uses your real overseas account credentials against the official shield endpoint
-> (which is not proxied); only the in-game session is served by the private server.
-
 ---
 
 ## Features
@@ -144,6 +141,7 @@ Evernight-Launcher/
 - **[Jadeite](https://github.com/an-anime-team/jadeite)** — Anti-cheat wrapper for Honkai: Star Rail
 - **[xdelta3](http://xdelta.org/)** — Binary delta patching
 - **[YAGL](https://github.com/yaagl/yet-another-anime-game-launcher)** — the launcher Kafka-Launcher is based on
+- **[FireflyGo Proxy](https://github.com/AzenKain/FireflyGo_Proxy)** — local MITM redirect proxy by AzenKain
 
 ---
 
