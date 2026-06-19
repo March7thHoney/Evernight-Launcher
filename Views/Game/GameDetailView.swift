@@ -270,29 +270,7 @@ struct GameSettingsSheet: View {
             ScrollView {
                 VStack(alignment: .leading, spacing: 20) {
                     settingsGroup("Installation") {
-                        HStack {
-                            Text("Install Directory")
-                            Spacer()
-                            Text(gameManager.settings.config(for: gameType).installDirectory ?? "Not set")
-                                .foregroundStyle(.secondary)
-                                .lineLimit(1)
-                                .truncationMode(.middle)
-                                .frame(maxWidth: 180, alignment: .trailing)
-                        }
-                        Button("Change Installer Directory...") {
-                            Task {
-                                if let url = await gameManager.selectInstallDirectory(for: gameType) {
-                                    gameManager.settings.updateConfig(for: gameType) { config in
-                                        config.installDirectory = url.path
-                                    }
-                                    gameManager.settings.save()
-                                    await gameManager.checkAllGameStates()
-                                }
-                            }
-                        }
-                        
                         if gameManager.currentState == .ready {
-                            Divider().opacity(0.5)
                             Button("Check Integrity") {
                                 Task { await gameManager.checkIntegrity(for: gameType) }
                             }

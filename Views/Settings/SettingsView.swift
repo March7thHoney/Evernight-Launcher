@@ -31,29 +31,6 @@ struct SettingsView: View {
 
                     // General
                     settingsGroup("General") {
-                        HStack {
-                            Text("Download Directory")
-                            Spacer()
-                            Text(gameManager.settings.defaultDownloadDirectory)
-                                .foregroundStyle(.secondary)
-                                .lineLimit(1)
-                                .truncationMode(.middle)
-                                .frame(maxWidth: 180, alignment: .trailing)
-                            Button("Change…") {
-                                let panel = NSOpenPanel()
-                                panel.canChooseDirectories = true
-                                panel.canChooseFiles = false
-                                panel.canCreateDirectories = true
-                                if panel.runModal() == .OK, let url = panel.url {
-                                    gameManager.settings.defaultDownloadDirectory = url.path
-                                    gameManager.settings.save()
-                                }
-                            }
-                            .controlSize(.small)
-                        }
-                        
-                        Divider().opacity(0.5)
-                        
                         Toggle(isOn: Binding(
                             get: { gameManager.settings.runOldVersion },
                             set: { newValue in

@@ -230,7 +230,6 @@ enum WineSourceMode: String, Codable, CaseIterable {
 struct LauncherSettings: Codable {
     var selectedGame: GameType = .honkaiStarRail
     var gameConfigs: [GameType: GameConfig] = [:]
-    var defaultDownloadDirectory: String = NSHomeDirectory() + "/Games"
     var language: String = "en"
 
     // Wine global settings
@@ -257,7 +256,6 @@ struct LauncherSettings: Codable {
     enum CodingKeys: String, CodingKey {
         case selectedGame
         case gameConfigs
-        case defaultDownloadDirectory
         case language
         case selectedWineDistribution
         case wineSourceMode
@@ -268,7 +266,6 @@ struct LauncherSettings: Codable {
     init() {
         self.selectedGame = .honkaiStarRail
         self.gameConfigs = [:]
-        self.defaultDownloadDirectory = NSHomeDirectory() + "/Games"
         self.language = "en"
         self.selectedWineDistribution = WineManager.defaultDistribution.id
         self.wineSourceMode = .github
@@ -280,7 +277,6 @@ struct LauncherSettings: Codable {
         let container = try decoder.container(keyedBy: CodingKeys.self)
         self.selectedGame = try container.decodeIfPresent(GameType.self, forKey: .selectedGame) ?? .honkaiStarRail
         self.gameConfigs = try container.decodeIfPresent([GameType: GameConfig].self, forKey: .gameConfigs) ?? [:]
-        self.defaultDownloadDirectory = try container.decodeIfPresent(String.self, forKey: .defaultDownloadDirectory) ?? (NSHomeDirectory() + "/Games")
         self.language = try container.decodeIfPresent(String.self, forKey: .language) ?? "en"
         self.selectedWineDistribution = try container.decodeIfPresent(String.self, forKey: .selectedWineDistribution) ?? WineManager.defaultDistribution.id
         self.wineSourceMode = try container.decodeIfPresent(WineSourceMode.self, forKey: .wineSourceMode) ?? .github
