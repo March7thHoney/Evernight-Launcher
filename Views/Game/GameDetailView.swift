@@ -101,7 +101,7 @@ struct GameDetailView: View {
     private var socialLinks: some View {
         HStack(spacing: 10) {
             socialButton(asset: "DiscordLogo",
-                         url: "https://discord.gg/castoriceps",
+                         url: "https://discord.gg/CyreneEchoes",
                          help: "Discord")
             socialButton(asset: "GitHubLogo",
                          url: "https://github.com/March7thHoney/Evernight-Launcher",
