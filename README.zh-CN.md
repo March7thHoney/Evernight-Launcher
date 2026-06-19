@@ -6,7 +6,7 @@
 
 > Fork 自 [Kafka-Launcher](https://github.com/Furiri443/Kafka-Launcher)，精简为只专注于一款游戏——崩坏：星穹铁道——及其私服。
 
-- 💬 **Discord：** https://discord.gg/castoriceps
+- 💬 **Discord：** https://discord.gg/CyreneEchoes
 - **本项目：** https://github.com/March7thHoney/Evernight-Launcher
 - **上游（fork 来源）：** https://github.com/Furiri443/Kafka-Launcher
 

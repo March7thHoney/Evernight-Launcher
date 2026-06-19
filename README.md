@@ -6,7 +6,7 @@ A native macOS launcher for **Honkai: Star Rail**, built with Swift & SwiftUI. I
 
 > Forked from [Kafka-Launcher](https://github.com/Furiri443/Kafka-Launcher) and trimmed down to focus on a single game — Honkai: Star Rail — and its private servers.
 
-- 💬 **Discord:** https://discord.gg/castoriceps
+- 💬 **Discord:** https://discord.gg/CyreneEchoes
 - **This project:** https://github.com/March7thHoney/Evernight-Launcher
 - **Upstream (forked from):** https://github.com/Furiri443/Kafka-Launcher
 
