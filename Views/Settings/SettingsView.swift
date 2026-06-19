@@ -61,7 +61,7 @@ struct SettingsView: View {
 
                     // Games
                     settingsGroup("Games") {
-                        ForEach(GameType.allCases) { type in
+                        ForEach(GameType.displayed) { type in
                             HStack {
                                 Label(type.displayName, systemImage: type.iconSystemName)
                                     .foregroundStyle(type.accentColor)
@@ -80,7 +80,7 @@ struct SettingsView: View {
                                         .foregroundStyle(.secondary)
                                 }
                             }
-                            if type != GameType.allCases.last {
+                            if type != GameType.displayed.last {
                                 Divider()
                             }
                         }

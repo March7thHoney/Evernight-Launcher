@@ -225,7 +225,7 @@ struct LauncherSettings: Codable {
     var customWinePath: String = ""     // Path to Wine folder when mode == .custom
     
     // Toggle to allow running older game versions and skip update checking
-    var runOldVersion: Bool = false
+    var runOldVersion: Bool = true
 
     func config(for game: GameType) -> GameConfig {
         gameConfigs[game] ?? GameConfig(gameType: game)
@@ -257,7 +257,7 @@ struct LauncherSettings: Codable {
         self.selectedWineDistribution = WineManager.defaultDistribution.id
         self.wineSourceMode = .github
         self.customWinePath = ""
-        self.runOldVersion = false
+        self.runOldVersion = true
     }
 
     init(from decoder: Decoder) throws {
@@ -268,7 +268,7 @@ struct LauncherSettings: Codable {
         self.selectedWineDistribution = try container.decodeIfPresent(String.self, forKey: .selectedWineDistribution) ?? WineManager.defaultDistribution.id
         self.wineSourceMode = try container.decodeIfPresent(WineSourceMode.self, forKey: .wineSourceMode) ?? .github
         self.customWinePath = try container.decodeIfPresent(String.self, forKey: .customWinePath) ?? ""
-        self.runOldVersion = try container.decodeIfPresent(Bool.self, forKey: .runOldVersion) ?? false
+        self.runOldVersion = try container.decodeIfPresent(Bool.self, forKey: .runOldVersion) ?? true
     }
 
     // MARK: - Persistence
