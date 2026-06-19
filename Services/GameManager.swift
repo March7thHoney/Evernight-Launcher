@@ -154,10 +154,16 @@ class GameManager {
         let proxyPath = folderPath + "/firefly-go-proxy"
         let psPath = folderPath + "/" + (isArm ? "firefly-go_mac_arm" : "firefly-go_mac_x86")
 
-        // The redirect proxy is always required.
+        // The redirect proxy is bundled in the app (offline, self-contained — no download).
         if !fm.fileExists(atPath: proxyPath) {
-            print("[Proxy] Proxy binary not found. Downloading...")
-            try await downloadProxy()
+            let bundledName = isArm ? "firefly-go-proxy-macos-arm64" : "firefly-go-proxy-macos-amd64"
+            guard let bundled = Bundle.main.resourceURL?.appendingPathComponent(bundledName).path,
+                  fm.fileExists(atPath: bundled) else {
+                throw NSError(domain: "ProxyManager", code: 404, userInfo: [NSLocalizedDescriptionKey: "Bundled proxy \(bundledName) not found in app."])
+            }
+            try fm.copyItem(atPath: bundled, toPath: proxyPath)
+            try? fm.setAttributes([.posixPermissions: 0o755], ofItemAtPath: proxyPath)
+            adhocSignBinary(proxyPath)
         }
 
         // The bundled server is only needed for FireflyPS, not for external private servers.
@@ -173,6 +179,20 @@ class GameManager {
         }
 
         return (proxyPath: proxyPath, psPath: psPath)
+    }
+
+    // Clear quarantine and ad-hoc re-sign a native binary copied out of the app bundle so macOS runs it.
+    private func adhocSignBinary(_ path: String) {
+        for (tool, args) in [("/usr/bin/xattr", ["-dr", "com.apple.quarantine", path]),
+                             ("/usr/bin/codesign", ["--force", "--sign", "-", path])] {
+            let p = Process()
+            p.executableURL = URL(fileURLWithPath: tool)
+            p.arguments = args
+            p.standardOutput = FileHandle.nullDevice
+            p.standardError = FileHandle.nullDevice
+            try? p.run()
+            p.waitUntilExit()
+        }
     }
 
     func downloadProxy() async throws {
@@ -608,7 +628,7 @@ class GameManager {
                 proxyProcess.currentDirectoryURL = URL(fileURLWithPath: proxyDirectoryPath)
                 proxyProcess.standardOutput = FileHandle.nullDevice
                 proxyProcess.standardError = FileHandle.nullDevice
-                
+
                 launchLog.info("[Phase 1] Starting FireflyPS Proxy at port \(freePort) redirecting to \(redirectHost)...")
                 try proxyProcess.run()
                 self.activeProxyProcess = proxyProcess
@@ -712,6 +732,13 @@ class GameManager {
                 launchLog.info("[Phase 2] Ensuring jadeite available...")
                 try await JadeiteManager.ensureJadeiteAvailable()
                 launchLog.info("[Phase 2] Jadeite ready at \(JadeiteManager.jadeiteExe)")
+            }
+
+            // 2b2. Ensure bundled HSR-Patch (HSRLauncher + CyreneHook) for March7thHoney login redirect
+            if config.useMarch7thHoney && type == .honkaiStarRail {
+                launchLog.info("[Phase 2] Ensuring HSR-Patch available...")
+                try HSRPatchManager.ensureAvailable()
+                launchLog.info("[Phase 2] HSR-Patch ready at \(HSRPatchManager.launcherExe)")
             }
 
             // 2c. Remove crash reporters and vulkan-1.dll
@@ -1025,7 +1052,13 @@ class GameManager {
         let config = settings.config(for: type)
 
         if JadeiteManager.requiresJadeite(for: type) {
-            // HSR: use jadeite wrapper (no HoYoKProtect copy)
+            if config.useMarch7thHoney {
+                // March7thHoney: HSRLauncher launches the configured game suspended and injects game_payload.dll (mhypbase bypass under Wine) + CyreneHook.dll (rewrites login webview to private server) before resuming — early enough to catch the first login webview load.
+                let winExePath = wineManager.toWinePath(gameDir + "/" + executable)
+                let winHSRLauncher = wineManager.toWinePath(WineManager.basePath + "/hsrpatch/HSRLauncher.exe")
+                return "@echo off\ncd \"%~dp0\"\ncd /d \"\(winGameDir)\"\n\"\(winHSRLauncher)\" \"\(winExePath)\""
+            }
+            // HSR (other servers): use jadeite wrapper (no HoYoKProtect copy)
             let winJadeitePath = wineManager.toWinePath(JadeiteManager.jadeiteExe)
             let winExePath = wineManager.toWinePath(gameDir + "/" + executable)
             return "@echo off\ncd \"%~dp0\"\ncd /d \"\(winGameDir)\"\n\"\(winJadeitePath)\" \"\(winExePath)\" -- -disable-gpu-skinning"

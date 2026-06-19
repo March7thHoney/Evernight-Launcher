@@ -142,6 +142,15 @@ class WineManager {
             }
         }
 
+        // Recognize a valid on-disk Wine when the config tag is missing, so auto-install doesn't wipe + re-download it.
+        if fileManager.isExecutableFile(atPath: Self.winePath + "/bin/wine64") || fileManager.isExecutableFile(atPath: Self.winePath + "/bin/wine") {
+            let distro = defaults.string(forKey: Self.kWineTag).flatMap { tag in Self.distributions.first { $0.id == tag } } ?? Self.defaultDistribution
+            defaults.set("ready", forKey: Self.kWineState)
+            defaults.set(distro.id, forKey: Self.kWineTag)
+            status = .ready(distro)
+            return status
+        }
+
         // Also check system Wine/GPTK/CrossOver
         if let systemPath = findSystemWine() {
             status = .systemWine(path: systemPath)
