@@ -72,6 +72,29 @@ struct RegistryManager {
         ]
     }
 
+    // Fixed conhost geometry so the cmd console is a stable 80x30 box, not a random strip.
+    static func generateConsoleRegistryEntries() -> [Entry] {
+        [
+            (
+                key: "HKEY_CURRENT_USER\\Console",
+                values: [
+                    ("WindowSize", .dword(0x001E_0050)),
+                    ("ScreenBufferSize", .dword(0x012C_0050)),
+                ]
+            )
+        ]
+    }
+
+    // Pin the Wine audio driver to coreaudio so it never falls back to no driver.
+    static func generateAudioDriverRegistryEntries() -> [Entry] {
+        [
+            (
+                key: "HKEY_CURRENT_USER\\Software\\Wine\\Drivers",
+                values: [("Audio", .string("coreaudio"))]
+            )
+        ]
+    }
+
     // MARK: - HDR Registry
 
     static func generateHDRRegistryEntries(gameType: GameType, enable: Bool) -> [Entry] {

@@ -533,6 +533,9 @@ class GameManager {
                 leftCommandIsCtrl: config.leftCommandIsCtrl
             )
 
+            registryEntries += RegistryManager.generateConsoleRegistryEntries()
+            registryEntries += RegistryManager.generateAudioDriverRegistryEntries()
+
             if type == .honkaiStarRail && useDXMT {
                 launchLog.info("[Phase 1] Adding NV extension registry for HSR...")
                 registryEntries += RegistryManager.generateNVExtensionRegistryEntries()
