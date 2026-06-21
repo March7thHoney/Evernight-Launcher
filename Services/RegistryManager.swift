@@ -72,7 +72,7 @@ struct RegistryManager {
         ]
     }
 
-    // Fixed conhost geometry so the cmd console is a stable 80x30 box, not a random strip.
+    // Pin conhost geometry AND font cell size every launch so the console stays a normal 80x30 box; an unresolved system font otherwise gets a garbage cell width and renders as a strip.
     static func generateConsoleRegistryEntries() -> [Entry] {
         [
             (
@@ -80,6 +80,10 @@ struct RegistryManager {
                 values: [
                     ("WindowSize", .dword(0x001E_0050)),
                     ("ScreenBufferSize", .dword(0x012C_0050)),
+                    ("FaceName", .string("Courier New")),
+                    ("FontFamily", .dword(0x0000_0036)),
+                    ("FontWeight", .dword(0x0000_0190)),
+                    ("FontSize", .dword(0x0010_0008)),
                 ]
             )
         ]
