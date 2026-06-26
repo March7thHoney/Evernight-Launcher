@@ -13,6 +13,7 @@ class GameManager {
 
     let downloadManager = DownloadManager()
     let wineManager = WineManager()
+    let gameClientUpdateManager = GameClientUpdateManager()
     let api = GameServerAPI.shared
     private var activeProxyProcess: Process?
 

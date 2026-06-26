@@ -102,6 +102,9 @@ Phase 4 — Post-Launch Cleanup
 ### xdelta3 Binary Patching
 Applies binary patches for Wine compatibility using `xdelta3`. All patches are automatically reverted after each session to preserve the original game data.
 
+### Game Client Update (ldiff/hdiff)
+Apply a game client patch archive (`.7z`/`.zip`/`.rar`) from **Settings → Game Client Update** to update the installed client. Supports both `ldiff` (chunked manifest) and `hdiff` (file-level) patches. The patch tool and its `hpatchz` + `7zz` helpers are bundled in the app, so it works on any Mac without Homebrew.
+
 ### Independent from Kafka-Launcher
 Uses its own data directory (`~/.evernight-launcher`) and bundle identifier (`com.march7thhoney.evernight-launcher`), so it can be installed and run alongside the original Kafka-Launcher without sharing Wine prefixes, game setup, or settings. The upstream auto-updater is disabled, since this is a customized fork.
 

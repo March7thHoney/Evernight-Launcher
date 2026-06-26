@@ -1,4 +1,5 @@
 import SwiftUI
+import UniformTypeIdentifiers
 
 // MARK: - Game Detail View
 
@@ -219,6 +220,10 @@ struct GameSettingsContent: View {
     @State private var langStatus: String?
     @State private var langStatusIsError = false
 
+    @State private var patchFileURL: URL?
+    @State private var updateStatus: String?
+    @State private var updateStatusIsError = false
+
     var body: some View {
         VStack(alignment: .leading, spacing: 20) {
                     settingsGroup("Network") {
@@ -276,6 +281,54 @@ struct GameSettingsContent: View {
                         }
 
                         Text("Patches game files to change the in-game text language. Install the game first.")
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
+                    }
+
+                    settingsGroup("Game Client Update") {
+                        HStack {
+                            Button("Select Patch File…") { selectPatchFile() }
+                                .buttonStyle(.bordered)
+                                .controlSize(.small)
+                                .disabled(gameManager.gameClientUpdateManager.isRunning)
+                            Spacer()
+                            if let url = patchFileURL {
+                                Text(url.lastPathComponent)
+                                    .font(.caption.monospaced())
+                                    .foregroundStyle(.secondary)
+                                    .lineLimit(1)
+                                    .truncationMode(.middle)
+                            }
+                        }
+
+                        HStack {
+                            Button("Update") { applyClientUpdate() }
+                                .buttonStyle(.borderedProminent)
+                                .controlSize(.small)
+                                .disabled(gameManager.settings.config(for: gameType).installDirectory == nil
+                                          || patchFileURL == nil
+                                          || gameManager.gameClientUpdateManager.isRunning)
+                            Spacer()
+                            if let msg = updateStatus {
+                                Text(msg)
+                                    .font(.caption)
+                                    .foregroundStyle(updateStatusIsError ? .yellow : .green)
+                                    .lineLimit(1)
+                                    .truncationMode(.middle)
+                            }
+                        }
+
+                        if gameManager.gameClientUpdateManager.isRunning {
+                            ProgressView(value: gameManager.gameClientUpdateManager.progress)
+                                .progressViewStyle(.linear)
+                            Text(gameManager.gameClientUpdateManager.stage.isEmpty ? "Working…" : gameManager.gameClientUpdateManager.stage)
+                                .font(.caption)
+                                .foregroundStyle(.secondary)
+                                .lineLimit(1)
+                                .truncationMode(.middle)
+                        }
+
+                        Text("Select an ldiff/hdiff patch archive (.7z/.zip/.rar) to update the game client. Install the game first.")
                             .font(.caption)
                             .foregroundStyle(.secondary)
                     }
@@ -418,6 +471,51 @@ struct GameSettingsContent: View {
         } catch {
             langStatus = error.localizedDescription
             langStatusIsError = true
+        }
+    }
+
+    private func selectPatchFile() {
+        let panel = NSOpenPanel()
+        panel.title = "Select Patch Archive"
+        panel.canChooseFiles = true
+        panel.canChooseDirectories = false
+        panel.allowsMultipleSelection = false
+        var types: [UTType] = [.zip]
+        if let t = UTType(filenameExtension: "7z") { types.append(t) }
+        if let t = UTType(filenameExtension: "rar") { types.append(t) }
+        panel.allowedContentTypes = types
+        if panel.runModal() == .OK, let url = panel.url {
+            patchFileURL = url
+            updateStatus = nil
+        }
+    }
+
+    private func applyClientUpdate() {
+        guard let dir = gameManager.settings.config(for: gameType).installDirectory else {
+            updateStatus = "Install the game first."
+            updateStatusIsError = true
+            return
+        }
+        guard let patch = patchFileURL else { return }
+        updateStatus = nil
+        Task {
+            do {
+                try await gameManager.gameClientUpdateManager.applyPatch(gameDir: dir, archivePath: patch.path)
+                if let version = GameVersionDetector.detectInstalledVersion(gameType: gameType, installDir: dir) {
+                    gameManager.settings.updateConfig(for: gameType) { $0.installedVersion = version }
+                    gameManager.settings.save()
+                }
+                await gameManager.checkAllGameStates()
+                await MainActor.run {
+                    updateStatus = "Updated"
+                    updateStatusIsError = false
+                }
+            } catch {
+                await MainActor.run {
+                    updateStatus = error.localizedDescription
+                    updateStatusIsError = true
+                }
+            }
         }
     }
 
