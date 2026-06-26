@@ -29,35 +29,13 @@ struct SettingsView: View {
             ScrollView {
                 VStack(alignment: .leading, spacing: 20) {
 
-                    // General
-                    settingsGroup("General") {
-                        Toggle(isOn: Binding(
-                            get: { gameManager.settings.runOldVersion },
-                            set: { newValue in
-                                gameManager.settings.runOldVersion = newValue
-                                gameManager.settings.save()
-                                Task {
-                                    await gameManager.checkAllGameStates()
-                                }
-                            }
-                        )) {
-                            VStack(alignment: .leading, spacing: 2) {
-                                Text("Allow Running Old Game Versions")
-                                    .font(.system(size: 13, weight: .medium))
-                                Text("Bypass automatic update checks and launch the game directly.")
-                                    .font(.caption)
-                                    .foregroundStyle(.secondary)
-                            }
-                        }
-                    }
+                    // Per-game settings (Network surfaced at the top)
+                    GameSettingsContent(gameManager: gameManager, gameType: gameManager.selectedGame)
 
                     // Wine / GPTK
                     WineSettingsSection(gameManager: gameManager,
                                        isInstallingWine: $isInstallingWine,
                                        installError: $installError)
-
-                    // Per-game settings (merged from the former game settings sheet)
-                    GameSettingsContent(gameManager: gameManager, gameType: gameManager.selectedGame)
 
                     // Games
                     settingsGroup("Games") {

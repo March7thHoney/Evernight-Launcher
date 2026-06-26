@@ -216,14 +216,68 @@ struct GameSettingsContent: View {
     @Bindable var gameManager: GameManager
     let gameType: GameType
 
+    @State private var langStatus: String?
+    @State private var langStatusIsError = false
+
     var body: some View {
         VStack(alignment: .leading, spacing: 20) {
-                    settingsGroup("Installation") {
-                        if gameManager.currentState == .ready {
-                            Button("Check Integrity") {
-                                Task { await gameManager.checkIntegrity(for: gameType) }
+                    settingsGroup("Network") {
+                        Toggle("Play on March7thHoney", isOn: Binding(
+                            get: { gameManager.settings.config(for: gameType).useMarch7thHoney },
+                            set: { newValue in
+                                gameManager.settings.updateConfig(for: gameType) { config in
+                                    config.useMarch7thHoney = newValue
+                                }
+                                gameManager.settings.save()
+                            }
+                        ))
+
+                        if gameManager.settings.config(for: gameType).useMarch7thHoney {
+                            Picker("Server", selection: configBinding(\.march7thServerPreset)) {
+                                ForEach(GameConfig.March7thServerPreset.allCases) { preset in
+                                    Text(preset.displayName).tag(preset)
+                                }
+                            }
+                            switch gameManager.settings.config(for: gameType).march7thServerPreset {
+                            case .custom:
+                                TextField("Server URL (e.g. https://example.com)", text: configBinding(\.march7thHoneyAddress))
+                            case .local:
+                                Text("Start the server first: run ./Start.command in the March7thHoney folder, then launch the game.")
+                                    .font(.caption)
+                                    .foregroundStyle(.secondary)
+                            case .hoyotoon:
+                                Text("Connects to the online hoyotoon server.")
+                                    .font(.caption)
+                                    .foregroundStyle(.secondary)
                             }
                         }
+                    }
+
+                    settingsGroup("Text Language") {
+                        Picker("Text Language", selection: configBinding(\.textLanguage)) {
+                            ForEach(LanguagePatchManager.textLanguages) { lang in
+                                Text(lang.displayName).tag(lang.code)
+                            }
+                        }
+
+                        HStack {
+                            Button("Apply") { applyTextLanguage() }
+                                .buttonStyle(.borderedProminent)
+                                .controlSize(.small)
+                                .disabled(gameManager.settings.config(for: gameType).installDirectory == nil)
+                            Spacer()
+                            if let msg = langStatus {
+                                Text(msg)
+                                    .font(.caption)
+                                    .foregroundStyle(langStatusIsError ? .yellow : .green)
+                                    .lineLimit(1)
+                                    .truncationMode(.middle)
+                            }
+                        }
+
+                        Text("Patches game files to change the in-game text language. Install the game first.")
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
                     }
 
                     settingsGroup("Wine") {
@@ -332,62 +386,38 @@ struct GameSettingsContent: View {
                         }
                     }
 
-                    settingsGroup("Audio") {
-                        Picker("Voice Language", selection: configBinding(\.voiceLanguage)) {
-                            ForEach(GameConfig.VoiceLanguage.allCases) { lang in
-                                Text(lang.displayName).tag(lang)
-                            }
-                        }
-                    }
-
-                    settingsGroup("Network") {
-                        Toggle("Enable Proxy", isOn: configBinding(\.proxyEnabled))
-                        if gameManager.settings.config(for: gameType).proxyEnabled {
-                            TextField("Proxy Host", text: configBinding(\.proxyHost))
-                        }
-                        
-                        Divider().opacity(0.3)
-
-                        Toggle("Play on March7thHoney (Local Server)", isOn: Binding(
-                            get: { gameManager.settings.config(for: gameType).useMarch7thHoney },
-                            set: { newValue in
-                                gameManager.settings.updateConfig(for: gameType) { config in
-                                    config.useMarch7thHoney = newValue
-                                }
-                                gameManager.settings.save()
-                            }
-                        ))
-
-                        if gameManager.settings.config(for: gameType).useMarch7thHoney {
-                            Picker("Server", selection: configBinding(\.march7thServerPreset)) {
-                                ForEach(GameConfig.March7thServerPreset.allCases) { preset in
-                                    Text(preset.displayName).tag(preset)
-                                }
-                            }
-                            switch gameManager.settings.config(for: gameType).march7thServerPreset {
-                            case .custom:
-                                TextField("Server URL (e.g. https://example.com)", text: configBinding(\.march7thHoneyAddress))
-                            case .local:
-                                Text("Start the server first: run ./Start.command in the March7thHoney folder, then launch the game.")
-                                    .font(.caption)
-                                    .foregroundStyle(.secondary)
-                            case .hoyotoon:
-                                Text("Connects to the online hoyotoon server.")
-                                    .font(.caption)
-                                    .foregroundStyle(.secondary)
-                            }
-                        }
-
-                        Divider().opacity(0.3)
-
-                        Toggle("Block Network (Anti-Cheat)", isOn: configBinding(\.blockNetwork))
-                    }
-
                     settingsGroup("Advanced") {
                         Toggle("WINEMSYNC", isOn: configBinding(\.winemsync))
                         Toggle("Steam Emulation", isOn: configBinding(\.useSteamPatch))
                         Toggle("ReShade", isOn: configBinding(\.enableReShade))
                     }
+        }
+        .onAppear { syncTextLanguageFromGame() }
+    }
+
+    // Best-effort: reflect the game's current text language in the picker.
+    private func syncTextLanguageFromGame() {
+        guard let dir = gameManager.settings.config(for: gameType).installDirectory,
+              let current = try? LanguagePatchManager.getTextLanguage(installDirectory: dir),
+              current != gameManager.settings.config(for: gameType).textLanguage else { return }
+        gameManager.settings.updateConfig(for: gameType) { $0.textLanguage = current }
+        gameManager.settings.save()
+    }
+
+    private func applyTextLanguage() {
+        let config = gameManager.settings.config(for: gameType)
+        guard let dir = config.installDirectory else {
+            langStatus = "Install the game first."
+            langStatusIsError = true
+            return
+        }
+        do {
+            try LanguagePatchManager.setTextLanguage(installDirectory: dir, code: config.textLanguage)
+            langStatus = "Applied"
+            langStatusIsError = false
+        } catch {
+            langStatus = error.localizedDescription
+            langStatusIsError = true
         }
     }
 

@@ -223,33 +223,9 @@ class GameManager {
                     }
                 }
 
-                // Check for updates from HoYo API
-                if settings.runOldVersion {
-                    await MainActor.run {
-                        gameStates[type] = .ready
-                    }
-                } else {
-                    do {
-                        let manifest = try await api.fetchLatestVersion(for: games[type]!)
-                        if let latestVersion = manifest.main.major?.version,
-                           let installed = detectedVersion ?? config.installedVersion,
-                           latestVersion != installed {
-                            await MainActor.run {
-                                gameStates[type] = .needsUpdate(
-                                    currentVersion: installed,
-                                    latestVersion: latestVersion
-                                )
-                            }
-                        } else {
-                            await MainActor.run {
-                                gameStates[type] = .ready
-                            }
-                        }
-                    } catch {
-                        await MainActor.run {
-                            gameStates[type] = .ready
-                        }
-                    }
+                // Always allow running the installed version; skip update checks.
+                await MainActor.run {
+                    gameStates[type] = .ready
                 }
             } else {
                 await MainActor.run {
@@ -554,13 +530,8 @@ class GameManager {
                 )
             }
 
-            let isProxyEnabled = config.requiresRedirectProxy || config.proxyEnabled
-            let targetProxyHost: String
-            if config.requiresRedirectProxy {
-                targetProxyHost = "127.0.0.1:\(freePort)"
-            } else {
-                targetProxyHost = config.proxyHost
-            }
+            let isProxyEnabled = config.requiresRedirectProxy
+            let targetProxyHost = "127.0.0.1:\(freePort)"
             launchLog.info("[Phase 1] Configuring proxy registry (enabled=\(isProxyEnabled), host=\(targetProxyHost))...")
             registryEntries += RegistryManager.generateProxyRegistryEntries(enable: isProxyEnabled, proxyHost: targetProxyHost)
 
@@ -737,9 +708,6 @@ class GameManager {
             if config.requiresRedirectProxy {
                 env["HTTP_PROXY"] = "127.0.0.1:\(freePort)"
                 env["HTTPS_PROXY"] = "127.0.0.1:\(freePort)"
-            } else if config.proxyEnabled && !config.proxyHost.isEmpty {
-                env["HTTP_PROXY"] = config.proxyHost
-                env["HTTPS_PROXY"] = config.proxyHost
             }
 
             // March7thHoney: tell the injected patch which server to use (webview redirect) and route its in-process WinHTTP through firefly so any server (local or online) works.
@@ -753,13 +721,7 @@ class GameManager {
                 env["GST_PLUGIN_FEATURE_RANK"] = "atdec:MAX,avdec_h264:MAX"
             }
 
-            // 3c. Apply network blocking if configured
-            if config.blockNetwork {
-                launchLog.info("[Phase 3] Applying network blocking...")
-                try await applyNetworkBlocking(for: type)
-            }
-
-            // 3d. Setup logging
+            // 3c. Setup logging
             let logsDir = WineManager.logsPath
             try FileManager.default.createDirectory(atPath: logsDir, withIntermediateDirectories: true)
             let logFile = logsDir + "/\(type.rawValue)_\(Int(Date().timeIntervalSince1970)).log"
@@ -981,63 +943,6 @@ class GameManager {
         }
     }
 
-    // MARK: - Network Blocking (/etc/hosts manipulation via osascript)
-    //
-    // Blocks the game's dispatch server domain during launch.
-    // This prevents the anti-cheat from phoning home while patched binaries load.
-    // The block auto-removes after a delay via a background shell script.
-    //
-    // Domains:
-    //   GI OS:  dispatchosglobal.yuanshen.com       (sleep 10)
-    //   HSR OS: globaldp-prod-os01.starrails.com     (sleep 15)
-    //   ZZZ OS: globaldp-prod-os01.zenlesszonezero.com (sleep 20)
-
-    private func applyNetworkBlocking(for type: GameType) async throws {
-        // Block URL and sleep duration per game
-        let blockUrl: String
-        let sleepSeconds: Int
-        switch type {
-        case .genshinImpact:
-            blockUrl = "dispatchosglobal.yuanshen.com"
-            sleepSeconds = 10
-        case .honkaiStarRail:
-            blockUrl = "globaldp-prod-os01.starrails.com"
-            sleepSeconds = 15
-        case .zenlessZoneZero:
-            blockUrl = "globaldp-prod-os01.zenlesszonezero.com"
-            sleepSeconds = 20
-        }
-
-        // Setup temporary script path:
-        let tmpScriptPath = "/tmp/launcher_network_block_script.sh"
-
-        let commands = [
-            "#!/bin/sh",
-            "",
-            "HOSTS_FILE=\"/etc/hosts\"",
-            "ENTRY=\"0.0.0.0 \(blockUrl)\"",
-            "PAD_START=\"# Temporarily Added by Launcher\"",
-            "PAD_END=\"# End of section\"",
-            "",
-            "if ! grep -qF \"$ENTRY\" \"$HOSTS_FILE\"; then",
-            "sudo bash -c \"echo -e '$PAD_START\\n$ENTRY\\n$PAD_END' >> '/etc/hosts'\"",
-            "fi",
-            "sleep \(sleepSeconds)",
-            "sudo sed -i.bak \"/$PAD_START/,/$PAD_END/d\" \"$HOSTS_FILE\"",
-            "",
-            "rm \(tmpScriptPath)",
-        ]
-
-        // Write script file
-        try commands.joined(separator: "\n").write(
-            toFile: tmpScriptPath, atomically: true, encoding: .utf8
-        )
-
-        // Execute via osascript with admin privileges, backgrounded
-        let osascript = "do shell script \"source \(tmpScriptPath) > /dev/null 2>&1 &\" with administrator privileges"
-        try await ProcessRunner.run("/usr/bin/osascript", arguments: ["-e", osascript])
-    }
-
     // MARK: - Fix Webview
 
     private func fixWebview(type: GameType, prefix: String) async throws {
@@ -1103,37 +1008,6 @@ class GameManager {
         )
 
         try? FileManager.default.removeItem(atPath: regPath)
-    }
-
-    // MARK: - Check Integrity
-
-    func checkIntegrity(for type: GameType) async {
-        let config = settings.config(for: type)
-        guard let dir = config.installDirectory else { return }
-
-        await MainActor.run {
-            gameStates[type] = .installing(progress: 0, status: "Checking integrity...")
-        }
-
-        // This would normally fetch a file manifest from the server
-        // For now, verify basic game files exist
-        let fm = FileManager.default
-        let requiredFiles = [type.executable, type.dataDir]
-        var allPresent = true
-        for file in requiredFiles {
-            if !fm.fileExists(atPath: dir + "/" + file) {
-                allPresent = false
-                break
-            }
-        }
-
-        await MainActor.run {
-            if allPresent {
-                gameStates[type] = .ready
-            } else {
-                reportError("Game files corrupted or missing", for: type)
-            }
-        }
     }
 
     // MARK: - Predownload

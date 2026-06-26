@@ -5,7 +5,7 @@ import Foundation
 struct GameConfig: Codable, Equatable {
     var gameType: GameType
     var installDirectory: String?
-    var voiceLanguage: VoiceLanguage = .japanese
+    var textLanguage: String = "en"
     var installedVersion: String?
 
     // Wine settings
@@ -27,13 +27,8 @@ struct GameConfig: Codable, Equatable {
     var resolutionWidth: Int = 1920
     var resolutionHeight: Int = 1080
 
-    // Network settings
-    var proxyEnabled: Bool = false
-    var proxyHost: String = ""
-    var blockNetwork: Bool = false
-    
     // Private Server Settings
-    var useMarch7thHoney: Bool = false
+    var useMarch7thHoney: Bool = true
     var march7thHoneyAddress: String = "127.0.0.1:21000"
     var march7thServerPreset: March7thServerPreset = .local
     var customProxyPath: String = ""
@@ -48,24 +43,6 @@ struct GameConfig: Codable, Equatable {
 
     // Pre-download flag
     var predownloadedAll: Bool = false
-
-    enum VoiceLanguage: String, Codable, CaseIterable, Identifiable {
-        case chinese = "zh-cn"
-        case english = "en-us"
-        case japanese = "ja-jp"
-        case korean = "ko-kr"
-
-        var id: String { rawValue }
-
-        var displayName: String {
-            switch self {
-            case .chinese: return "Chinese"
-            case .english: return "English"
-            case .japanese: return "Japanese"
-            case .korean: return "Korean"
-            }
-        }
-    }
 
     // March7thHoney server choice; the dropdown sets a preset, custom stores a full URL in march7thHoneyAddress.
     enum March7thServerPreset: String, Codable, CaseIterable, Identifiable {
@@ -108,11 +85,10 @@ struct GameConfig: Codable, Equatable {
     // MARK: - Codable & Initializers
     
     enum CodingKeys: String, CodingKey {
-        case gameType, installDirectory, voiceLanguage, installedVersion
+        case gameType, installDirectory, textLanguage, installedVersion
         case useGlobalWineSettings, wineSourceMode, customWinePath, wineDistribution, retinaMode, leftCommandIsCtrl
         case enableDXMT, installedDXMTVersion, metalHUD, enableHDR
         case customResolution, resolutionWidth, resolutionHeight
-        case proxyEnabled, proxyHost, blockNetwork
         case useMarch7thHoney, march7thHoneyAddress, march7thServerPreset, customProxyPath
         case useSteamPatch, enableReShade, workaround3
         case winemsync
@@ -122,7 +98,7 @@ struct GameConfig: Codable, Equatable {
     init(gameType: GameType) {
         self.gameType = gameType
         self.installDirectory = nil
-        self.voiceLanguage = .japanese
+        self.textLanguage = "en"
         self.installedVersion = nil
         self.useGlobalWineSettings = true
         self.wineSourceMode = .github
@@ -137,10 +113,7 @@ struct GameConfig: Codable, Equatable {
         self.customResolution = false
         self.resolutionWidth = 1920
         self.resolutionHeight = 1080
-        self.proxyEnabled = false
-        self.proxyHost = ""
-        self.blockNetwork = false
-        self.useMarch7thHoney = false
+        self.useMarch7thHoney = true
         self.march7thHoneyAddress = "127.0.0.1:21000"
         self.march7thServerPreset = .local
         self.customProxyPath = ""
@@ -155,7 +128,7 @@ struct GameConfig: Codable, Equatable {
         let container = try decoder.container(keyedBy: CodingKeys.self)
         self.gameType = try container.decode(GameType.self, forKey: .gameType)
         self.installDirectory = try container.decodeIfPresent(String.self, forKey: .installDirectory)
-        self.voiceLanguage = try container.decodeIfPresent(VoiceLanguage.self, forKey: .voiceLanguage) ?? .japanese
+        self.textLanguage = try container.decodeIfPresent(String.self, forKey: .textLanguage) ?? "en"
         self.installedVersion = try container.decodeIfPresent(String.self, forKey: .installedVersion)
         
         self.useGlobalWineSettings = try container.decodeIfPresent(Bool.self, forKey: .useGlobalWineSettings) ?? true
@@ -173,12 +146,8 @@ struct GameConfig: Codable, Equatable {
         self.customResolution = try container.decodeIfPresent(Bool.self, forKey: .customResolution) ?? false
         self.resolutionWidth = try container.decodeIfPresent(Int.self, forKey: .resolutionWidth) ?? 1920
         self.resolutionHeight = try container.decodeIfPresent(Int.self, forKey: .resolutionHeight) ?? 1080
-        
-        self.proxyEnabled = try container.decodeIfPresent(Bool.self, forKey: .proxyEnabled) ?? false
-        self.proxyHost = try container.decodeIfPresent(String.self, forKey: .proxyHost) ?? ""
-        self.blockNetwork = try container.decodeIfPresent(Bool.self, forKey: .blockNetwork) ?? false
-        
-        self.useMarch7thHoney = try container.decodeIfPresent(Bool.self, forKey: .useMarch7thHoney) ?? false
+
+        self.useMarch7thHoney = try container.decodeIfPresent(Bool.self, forKey: .useMarch7thHoney) ?? true
         self.march7thHoneyAddress = try container.decodeIfPresent(String.self, forKey: .march7thHoneyAddress) ?? "127.0.0.1:21000"
         self.march7thServerPreset = try container.decodeIfPresent(March7thServerPreset.self, forKey: .march7thServerPreset) ?? .local
         self.customProxyPath = try container.decodeIfPresent(String.self, forKey: .customProxyPath) ?? ""
@@ -223,9 +192,6 @@ struct LauncherSettings: Codable {
     var selectedWineDistribution: String = WineManager.defaultDistribution.id
     var wineSourceMode: WineSourceMode = .github
     var customWinePath: String = ""     // Path to Wine folder when mode == .custom
-    
-    // Toggle to allow running older game versions and skip update checking
-    var runOldVersion: Bool = true
 
     func config(for game: GameType) -> GameConfig {
         gameConfigs[game] ?? GameConfig(gameType: game)
@@ -247,7 +213,6 @@ struct LauncherSettings: Codable {
         case selectedWineDistribution
         case wineSourceMode
         case customWinePath
-        case runOldVersion
     }
 
     init() {
@@ -257,7 +222,6 @@ struct LauncherSettings: Codable {
         self.selectedWineDistribution = WineManager.defaultDistribution.id
         self.wineSourceMode = .github
         self.customWinePath = ""
-        self.runOldVersion = true
     }
 
     init(from decoder: Decoder) throws {
@@ -268,7 +232,6 @@ struct LauncherSettings: Codable {
         self.selectedWineDistribution = try container.decodeIfPresent(String.self, forKey: .selectedWineDistribution) ?? WineManager.defaultDistribution.id
         self.wineSourceMode = try container.decodeIfPresent(WineSourceMode.self, forKey: .wineSourceMode) ?? .github
         self.customWinePath = try container.decodeIfPresent(String.self, forKey: .customWinePath) ?? ""
-        self.runOldVersion = try container.decodeIfPresent(Bool.self, forKey: .runOldVersion) ?? true
     }
 
     // MARK: - Persistence
