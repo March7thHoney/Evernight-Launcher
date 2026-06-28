@@ -11,9 +11,28 @@
 		C6F2BF2C2F90EE87006C60B9 /* Kafka-Launcher.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = "Kafka-Launcher.app"; sourceTree = BUILT_PRODUCTS_DIR; };
 /* End PBXFileReference section */
 
+/* Begin PBXFileSystemSynchronizedBuildFileExceptionSet section */
+		C6F2BF3A2F90EE89006C60B9 /* Exceptions for "." folder in "Kafka-Launcher" target */ = {
+			isa = PBXFileSystemSynchronizedBuildFileExceptionSet;
+			membershipExceptions = (
+				PatchToolSource,
+				tmp,
+			);
+			target = C6F2BF2B2F90EE87006C60B9 /* Kafka-Launcher */;
+		};
+/* End PBXFileSystemSynchronizedBuildFileExceptionSet section */
+
 /* Begin PBXFileSystemSynchronizedRootGroup section */
 		C6F2BF2E2F90EE87006C60B9 /* . */ = {
 			isa = PBXFileSystemSynchronizedRootGroup;
+			exceptions = (
+				C6F2BF3A2F90EE89006C60B9 /* Exceptions for "." folder in "Kafka-Launcher" target */,
+			);
+			explicitFileTypes = {};
+			explicitFolders = (
+				PatchToolSource,
+				tmp,
+			);
 			path = .;
 			sourceTree = "<group>";
 		};

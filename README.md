@@ -105,6 +105,8 @@ Applies binary patches for Wine compatibility using `xdelta3`. All patches are a
 ### Game Client Update (ldiff/hdiff)
 Apply a game client patch archive (`.7z`/`.zip`/`.rar`) from **Settings → Game Client Update** to update the installed client. Supports both `ldiff` (chunked manifest) and `hdiff` (file-level) patches. The patch tool and its `hpatchz` + `7zz` helpers are bundled in the app, so it works on any Mac without Homebrew.
 
+The patch tool (`patch-cli`) is written in Go; its full source is tracked in `PatchToolSource/`. To modify it, edit the source and rebuild with `cd PatchToolSource && ./build.sh` (requires the Go toolchain) — the script stages a fresh universal `patch-cli` into `PatchTool/`. No external directory is required to build the app or rebuild the tool.
+
 ### Independent from Kafka-Launcher
 Uses its own data directory (`~/.evernight-launcher`) and bundle identifier (`com.march7thhoney.evernight-launcher`), so it can be installed and run alongside the original Kafka-Launcher without sharing Wine prefixes, game setup, or settings. The upstream auto-updater is disabled, since this is a customized fork.
 
@@ -131,7 +133,9 @@ Evernight-Launcher/
 ├── Utilities/
 │   ├── ProcessRunner.swift       # Async shell process execution
 │   └── Extensions.swift          # Swift utility extensions
-└── Views/                        # SwiftUI views (MainView, GameDetailView, Settings…)
+├── Views/                        # SwiftUI views (MainView, GameDetailView, Settings…)
+├── PatchTool/                    # Bundled binaries shipped in the app (patch-cli, hpatchz, 7zz)
+└── PatchToolSource/              # Go source for patch-cli — rebuild via ./build.sh
 ```
 
 ---

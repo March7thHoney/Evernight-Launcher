@@ -102,6 +102,8 @@ Phase 4 — 启动后清理
 ### 游戏客户端更新（ldiff/hdiff）
 在 **设置 → Game Client Update** 中选择客户端补丁包（`.7z`/`.zip`/`.rar`）即可更新已安装的客户端，同时支持 `ldiff`（分块清单）与 `hdiff`（文件级）两种补丁。补丁工具及其 `hpatchz`、`7zz` 辅助程序已随 app 打包，因此在任何 Mac 上都能用，无需 Homebrew。
 
+补丁工具 `patch-cli` 用 Go 编写，完整源码已纳入 git，位于 `PatchToolSource/`。要修改它，编辑源码后用 `cd PatchToolSource && ./build.sh` 重建（需 Go 工具链），脚本会把新的 universal `patch-cli` 输出到 `PatchTool/`。无论编译 app 还是重建工具，都不依赖任何外部目录。
+
 ### 与 Kafka-Launcher 相互独立
 使用独立的数据目录（`~/.evernight-launcher`）和包标识（`com.march7thhoney.evernight-launcher`），因此可以与原版 Kafka-Launcher 并存运行，不共享 Wine prefix、游戏配置或设置。上游的自动更新已禁用（因为这是定制 fork）。
 
@@ -128,7 +130,9 @@ Evernight-Launcher/
 ├── Utilities/
 │   ├── ProcessRunner.swift       # 异步 shell 进程执行
 │   └── Extensions.swift          # Swift 工具扩展
-└── Views/                        # SwiftUI 视图（MainView、GameDetailView、Settings…）
+├── Views/                        # SwiftUI 视图（MainView、GameDetailView、Settings…）
+├── PatchTool/                    # 随 app 打包的成品二进制（patch-cli、hpatchz、7zz）
+└── PatchToolSource/              # patch-cli 的 Go 源码 —— 用 ./build.sh 重建
 ```
 
 ---
