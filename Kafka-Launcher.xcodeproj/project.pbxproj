@@ -16,6 +16,7 @@
 			isa = PBXFileSystemSynchronizedBuildFileExceptionSet;
 			membershipExceptions = (
 				PatchToolSource,
+				build,
 				tmp,
 			);
 			target = C6F2BF2B2F90EE87006C60B9 /* Kafka-Launcher */;
@@ -31,6 +32,7 @@
 			explicitFileTypes = {};
 			explicitFolders = (
 				PatchToolSource,
+				build,
 				tmp,
 			);
 			path = .;

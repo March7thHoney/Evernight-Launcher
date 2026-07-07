@@ -8,24 +8,8 @@ struct MainView: View {
 
     var body: some View {
         @Bindable var gameManager = gameManager
-        GameDetailView(gameManager: gameManager)
-        .toolbar {
-            ToolbarItem(placement: .navigation) {
-                Button {
-                    showSettings = true
-                } label: {
-                    Image(systemName: "gearshape")
-                        .overlay(alignment: .topTrailing) {
-                            if AppUpdater.shared.updateAvailable {
-                                Circle()
-                                    .fill(.orange)
-                                    .frame(width: 7, height: 7)
-                                    .offset(x: 3, y: -3)
-                                    .shadow(color: .orange.opacity(0.6), radius: 2)
-                            }
-                        }
-                }
-            }
+        GameDetailView(gameManager: gameManager) {
+            showSettings = true
         }
         .frame(minWidth: 900, minHeight: 600)
         .background(.black)

@@ -5,6 +5,7 @@ import UniformTypeIdentifiers
 
 struct GameDetailView: View {
     @Bindable var gameManager: GameManager
+    let openSettings: () -> Void
 
     private var game: GameInfo { gameManager.currentGame }
     private var state: GameState { gameManager.currentState }
@@ -145,6 +146,8 @@ struct GameDetailView: View {
 
             Spacer()
 
+            settingsButton
+
             // Locate existing game button (always visible so the game directory can be re-pointed anytime)
             Button {
                 Task { await gameManager.locateGame(type) }
@@ -165,6 +168,30 @@ struct GameDetailView: View {
         .padding(.horizontal, 22)
         .padding(.vertical, 14)
         .liquidGlassCard(cornerRadius: 18)
+    }
+
+    private var settingsButton: some View {
+        Button {
+            openSettings()
+        } label: {
+            Image(systemName: "gearshape")
+                .font(.system(size: 18, weight: .medium))
+                .frame(width: 18, height: 18)
+                .overlay(alignment: .topTrailing) {
+                    if AppUpdater.shared.updateAvailable {
+                        Circle()
+                            .fill(.orange)
+                            .frame(width: 7, height: 7)
+                            .offset(x: 3, y: -3)
+                            .shadow(color: .orange.opacity(0.6), radius: 2)
+                    }
+                }
+        }
+        .buttonStyle(.plain)
+        .padding(.horizontal, 14)
+        .padding(.vertical, 11)
+        .liquidGlassButton(color: .white)
+        .help("Settings")
     }
 
     // MARK: - Launch Button
