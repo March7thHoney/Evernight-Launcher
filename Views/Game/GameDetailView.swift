@@ -252,6 +252,8 @@ struct GameSettingsContent: View {
     @State private var updateStatusIsError = false
     @State private var showRepairConfirmation = false
     @State private var showVoiceConfirmation = false
+    @State private var showBetaOfficialUpdateWarning = false
+    @State private var showProductionManualPatchWarning = false
 
     var body: some View {
         VStack(alignment: .leading, spacing: 20) {
@@ -352,7 +354,7 @@ struct GameSettingsContent: View {
                                 Button("Check for Updates") { checkOfficialUpdate() }
                                     .buttonStyle(.bordered)
                                     .disabled(gameManager.officialClientManager.isRunning)
-                                Button("Update") { updateOfficialClient() }
+                                Button("Update") { requestOfficialUpdate() }
                                     .buttonStyle(.borderedProminent)
                                     .disabled(!gameManager.officialClientManager.updateAvailable
                                               || gameManager.officialClientManager.isRunning)
@@ -420,7 +422,7 @@ struct GameSettingsContent: View {
                         }
 
                         HStack {
-                            Button("Update") { applyClientUpdate() }
+                            Button("Update") { requestManualPatchUpdate() }
                                 .buttonStyle(.borderedProminent)
                                 .controlSize(.small)
                                 .disabled(gameManager.settings.config(for: gameType).installDirectory == nil
@@ -572,6 +574,18 @@ struct GameSettingsContent: View {
         } message: {
             Text("Damaged files will be replaced with official copies. This may undo Text Language or other resource modifications.")
         }
+        .alert("Update Beta Client from Official Source?", isPresented: $showBetaOfficialUpdateWarning) {
+            Button("Cancel", role: .cancel) {}
+            Button("Update Anyway") { updateOfficialClient() }
+        } message: {
+            Text("Version \(installedClientVersion ?? "unknown") is a Beta client. Official production updates may be incompatible and damage this client.")
+        }
+        .alert("Apply Manual Patch to Production Client?", isPresented: $showProductionManualPatchWarning) {
+            Button("Cancel", role: .cancel) {}
+            Button("Apply Anyway") { applyClientUpdate() }
+        } message: {
+            Text("Version \(installedClientVersion ?? "unknown") is a production client. A manually selected diff/hdiff archive may target a Beta or different version and damage this client.")
+        }
         .confirmationDialog(
             "Reinstall Chinese Voice?",
             isPresented: $showVoiceConfirmation,
@@ -593,6 +607,27 @@ struct GameSettingsContent: View {
         let fm = FileManager.default
         return fm.fileExists(atPath: gameDirectory + "/StarRail.exe")
             && fm.fileExists(atPath: gameDirectory + "/StarRail_Data")
+    }
+
+    private var installedClientVersion: String? {
+        gameManager.officialClientManager.installedVersion
+            ?? gameManager.settings.config(for: gameType).installedVersion
+    }
+
+    private func requestOfficialUpdate() {
+        if let version = installedClientVersion, GameVersionDetector.isBetaVersion(version) {
+            showBetaOfficialUpdateWarning = true
+        } else {
+            updateOfficialClient()
+        }
+    }
+
+    private func requestManualPatchUpdate() {
+        if let version = installedClientVersion, GameVersionDetector.isProductionVersion(version) {
+            showProductionManualPatchWarning = true
+        } else {
+            applyClientUpdate()
+        }
     }
 
     private func checkOfficialUpdate() {

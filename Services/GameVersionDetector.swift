@@ -76,6 +76,16 @@ struct GameVersionDetector {
         return nil
     }
 
+    static func isBetaVersion(_ version: String) -> Bool {
+        guard let patch = versionComponents(version)?.patch else { return false }
+        return patch >= 50
+    }
+
+    static func isProductionVersion(_ version: String) -> Bool {
+        guard let patch = versionComponents(version)?.patch else { return false }
+        return patch < 50
+    }
+
     // MARK: - Private Helpers
 
     private static func findPattern(in data: Data, pattern: [UInt8]) -> Int? {
@@ -93,6 +103,15 @@ struct GameVersionDetector {
             if found { return i }
         }
         return nil
+    }
+
+    private static func versionComponents(_ version: String) -> (major: Int, minor: Int, patch: Int)? {
+        let components = version.split(separator: ".", omittingEmptySubsequences: false)
+        guard components.count == 3,
+              let major = Int(components[0]),
+              let minor = Int(components[1]),
+              let patch = Int(components[2]) else { return nil }
+        return (major, minor, patch)
     }
 
     private static func extractVersionNearPattern(in data: Data, pattern: [UInt8]) -> String? {
