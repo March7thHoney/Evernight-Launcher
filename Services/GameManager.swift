@@ -421,6 +421,8 @@ class GameManager {
         var privateServerCertPath: String?
         var launchRegistryPath: String?
         var batchPath: String?
+        var managedDriveMapping: ManagedWineDriveMapping?
+        var wineGameDir = wineManager.toWinePath(installDir)
         
         let prefix = WineManager.defaultPrefixPath
         let launchLog = LaunchLogger(gameType: type)
@@ -455,6 +457,21 @@ class GameManager {
             // fails with exit code 8 / SIGFPE).
             launchLog.info("[Phase 0] Clearing any stale wineserver...")
             await wineManager.killWineServer(prefix: prefix)
+            wineManager.cleanupStaleManagedDriveMappings(prefix: prefix)
+
+            let fileSystemType = wineManager.fileSystemType(at: installDir)
+            let isNetworkVolume = wineManager.isNetworkVolume(fileSystemType: fileSystemType)
+            launchLog.info("[Phase 0] Mounted-volume compatibility: enabled=\(settings.enableMountedVolumeCompatibility), filesystem=\(fileSystemType ?? "unknown"), network=\(isNetworkVolume)")
+            if settings.enableMountedVolumeCompatibility && isNetworkVolume {
+                let mapping = try wineManager.prepareManagedDriveMapping(for: installDir, prefix: prefix)
+                managedDriveMapping = mapping
+                wineGameDir = mapping.wineRootPath
+                launchLog.info("[Phase 0] Managed Wine drive: \(mapping.wineRootPath) -> \(mapping.targetPath)")
+            }
+            launchLog.info("[Phase 0] Final Wine game path: \(wineGameDir)")
+            let isMainlandChinaHSR = type == .honkaiStarRail
+                && isMainlandChinaHSRInstall(at: installDir)
+            let usesMountedCNCompatibility = managedDriveMapping != nil && isMainlandChinaHSR
 
             // 0. Start the redirect proxy (March7thHoney) if enabled
             if config.requiresRedirectProxy {
@@ -523,6 +540,7 @@ class GameManager {
             if config.customResolution {
                 registryEntries += RegistryManager.generateResolutionRegistryEntries(
                     gameType: type,
+                    isMainlandChinaHSR: isMainlandChinaHSR,
                     width: config.resolutionWidth,
                     height: config.resolutionHeight,
                     fullscreen: false
@@ -640,7 +658,7 @@ class GameManager {
             // Write config.bat in the data directory, NOT in the game directory.
             // Writing into the game folder can trigger anti-cheat.
             let batchScript = generateLaunchBatch(
-                gameDir: installDir,
+                wineGameDir: wineGameDir,
                 executable: type.executable,
                 type: type
             )
@@ -657,6 +675,12 @@ class GameManager {
             // 3b. Build environment variables
             var env: [String: String] = [:]
             let baseDir = WineManager.basePath
+
+            if usesMountedCNCompatibility {
+                env["LANG"] = "zh_CN.UTF-8"
+                env["LC_ALL"] = "zh_CN.UTF-8"
+                launchLog.info("[Phase 3] Using zh-CN process locale for mounted CN HSR")
+            }
 
             // Metal HUD
             if config.metalHUD {
@@ -741,7 +765,7 @@ class GameManager {
             // 3e. Execute via Wine (cmd /c config.bat)
             // If steamPatch is enabled for Genshin, use steam.exe as launcher
             let winBatchPath = wineManager.toWinePath(batchPath!)
-            let winExePath = wineManager.toWinePath(installDir + "/" + type.executable)
+            let winExePath = winePath(in: wineGameDir, relativePath: type.executable)
             let process: Process
             if config.useSteamPatch && type == .genshinImpact {
                 // Launch via steam.exe
@@ -785,6 +809,11 @@ class GameManager {
             // Wait for wineserver off
             launchLog.info("[Phase 4] Waiting for wineserver off...")
             try? await wineManager.waitForWineServerOff(prefix: prefix)
+            if let mapping = managedDriveMapping {
+                wineManager.cleanupManagedDriveMapping(mapping)
+                managedDriveMapping = nil
+                launchLog.info("[Phase 4] Removed managed Wine drive \(mapping.wineRootPath)")
+            }
 
             // ═══════════════════════════════════════════
             // PHASE 4: Post-Launch Cleanup
@@ -835,6 +864,12 @@ class GameManager {
             await MainActor.run { gameStates[type] = .ready }
         } catch {
             print("[LaunchGame] ❌ ERROR: \(error.localizedDescription)")
+
+            if let mapping = managedDriveMapping {
+                await wineManager.killWineServer(prefix: prefix)
+                wineManager.cleanupManagedDriveMapping(mapping)
+                managedDriveMapping = nil
+            }
             
             // Clean up proxy process
             if activeProxyProcess != nil {
@@ -883,36 +918,54 @@ class GameManager {
 
     /// Generate batch script matching target format.
     /// Uses JS template literals which produce \n line endings — Wine's cmd.exe handles both.
-    private func generateLaunchBatch(gameDir: String, executable: String, type: GameType) -> String {
-        let winGameDir = wineManager.toWinePath(gameDir)
+    private func generateLaunchBatch(wineGameDir: String, executable: String, type: GameType) -> String {
+        let winGameDir = wineGameDir
         let config = settings.config(for: type)
 
         if JadeiteManager.requiresJadeite(for: type) {
             if config.useMarch7thHoney {
                 // March7thHoney: HSRLauncher launches the configured game suspended and injects game_payload.dll (mhypbase bypass under Wine) + CyreneHook.dll (rewrites login webview to private server) before resuming — early enough to catch the first login webview load.
-                let winExePath = wineManager.toWinePath(gameDir + "/" + executable)
+                let winExePath = winePath(in: winGameDir, relativePath: executable)
                 let winHSRLauncher = wineManager.toWinePath(WineManager.basePath + "/hsrpatch/HSRLauncher.exe")
                 return "@echo off\ncd \"%~dp0\"\ncd /d \"\(winGameDir)\"\n\"\(winHSRLauncher)\" \"\(winExePath)\""
             }
             // HSR (other servers): use jadeite wrapper (no HoYoKProtect copy)
             let winJadeitePath = wineManager.toWinePath(JadeiteManager.jadeiteExe)
-            let winExePath = wineManager.toWinePath(gameDir + "/" + executable)
+            let winExePath = winePath(in: winGameDir, relativePath: executable)
             return "@echo off\ncd \"%~dp0\"\ncd /d \"\(winGameDir)\"\n\"\(winJadeitePath)\" \"\(winExePath)\" -- -disable-gpu-skinning"
         } else if type == .zenlessZoneZero {
             // ZZZ: copy HoYoKProtect.sys + resolution as CLI args
-            let protectSrc = wineManager.toWinePath(gameDir + "/HoYoKProtect.sys")
+            let protectSrc = winePath(in: winGameDir, relativePath: "HoYoKProtect.sys")
             var args = ""
             if config.customResolution {
                 args = " -screen-width \(config.resolutionWidth) -screen-height \(config.resolutionHeight) -screen-fullscreen 0"
             }
-            return "@echo off\ncd \"%~dp0\"\ncopy \"\(protectSrc)\" \"%WINDIR%\\system32\\\"\ncd /d \"\(winGameDir)\"\n\"\(wineManager.toWinePath(gameDir + "/" + executable))\"\(args)"
+            return "@echo off\ncd \"%~dp0\"\ncopy \"\(protectSrc)\" \"%WINDIR%\\system32\\\"\ncd /d \"\(winGameDir)\"\n\"\(winePath(in: winGameDir, relativePath: executable))\"\(args)"
         } else {
             // Genshin: copy HoYoKProtect.sys + cloud platform args
-            let protectSrc = wineManager.toWinePath(gameDir + "/HoYoKProtect.sys")
-            return "@echo off\ncd \"%~dp0\"\ncopy \"\(protectSrc)\" \"%WINDIR%\\system32\\\"\ncd /d \"\(winGameDir)\"\n\"\(wineManager.toWinePath(gameDir + "/" + executable))\" -platform_type CLOUD_THIRD_PARTY_PC -is_cloud 1"
+            let protectSrc = winePath(in: winGameDir, relativePath: "HoYoKProtect.sys")
+            return "@echo off\ncd \"%~dp0\"\ncopy \"\(protectSrc)\" \"%WINDIR%\\system32\\\"\ncd /d \"\(winGameDir)\"\n\"\(winePath(in: winGameDir, relativePath: executable))\" -platform_type CLOUD_THIRD_PARTY_PC -is_cloud 1"
         }
     }
 
+    private func winePath(in root: String, relativePath: String) -> String {
+        root + "\\" + relativePath.replacingOccurrences(of: "/", with: "\\")
+    }
+
+    private func isMainlandChinaHSRInstall(at installDirectory: String) -> Bool {
+        let appInfoPath = installDirectory + "/StarRail_Data/app.info"
+        if let data = FileManager.default.contents(atPath: appInfoPath),
+           let contents = String(data: data, encoding: .utf8),
+           let company = contents.split(whereSeparator: \.isNewline).first {
+            return String(company).trimmingCharacters(in: .whitespacesAndNewlines)
+                .localizedCaseInsensitiveCompare("miHoYo") == .orderedSame
+        }
+
+        let configPath = installDirectory + "/config.ini"
+        guard let data = FileManager.default.contents(atPath: configPath),
+              let contents = String(data: data, encoding: .utf8) else { return false }
+        return contents.range(of: "cps=hyp_mihoyo", options: .caseInsensitive) != nil
+    }
 
     // MARK: - Files to Remove per game
 

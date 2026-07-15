@@ -1,4 +1,14 @@
 import Foundation
+import Darwin
+
+struct ManagedWineDriveMapping {
+    let letter: String
+    let targetPath: String
+    let linkPath: String
+    let markerPath: String
+
+    var wineRootPath: String { letter.uppercased() + ":" }
+}
 
 // MARK: - Wine Manager
 
@@ -20,6 +30,7 @@ class WineManager {
     static let logsPath = basePath + "/logs"
     static let dxmtPath = basePath + "/dxmt"
     static let sidecarPath = basePath + "/sidecar"
+    private static let managedDriveMarkerPath = basePath + "/managed-drive-mappings"
 
     // MARK: - Wine Distributions
 
@@ -35,7 +46,7 @@ class WineManager {
         ),
         WineDistribution(
             id: "11.8-dxmt-signed-experimental",
-            displayName: "Wine 11.8 DXMT (signed, experimental)",
+            displayName: "Wine 11.8 DXMT (signed, recommended)",
             remoteUrl: "https://github.com/yaagl/anime-game-wine/releases/download/wine-11.8-signed/wine-devel-11.8-osx64-signed.tar.xz",
             format: .tarXz,
             winePath: "wine",
@@ -43,7 +54,7 @@ class WineManager {
         ),
         WineDistribution(
             id: "11.4-dxmt-signed",
-            displayName: "Wine 11.4 DXMT (signed, recommended)",
+            displayName: "Wine 11.4 DXMT (signed)",
             remoteUrl: "https://github.com/dawn-winery/dawn-signed/releases/download/wine-gcenx-11.4-osx64/wine-devel-11.4-osx64-signed.tar.xz",
             format: .tarXz,
             winePath: "wine-devel-11.4-osx64-signed/Contents/Resources/wine",
@@ -93,7 +104,7 @@ class WineManager {
         ),
     ]
 
-    static let defaultDistribution = distributions.first(where: { $0.id == "11.4-dxmt-signed" }) ?? distributions[0]
+    static let defaultDistribution = distributions.first(where: { $0.id == "11.8-dxmt-signed-experimental" }) ?? distributions[0]
 
     // MARK: - Persistent Wine State Keys
 
@@ -530,6 +541,84 @@ class WineManager {
         "Z:" + absPath.replacingOccurrences(of: "/", with: "\\")
     }
 
+    func fileSystemType(at path: String) -> String? {
+        var info = statfs()
+        guard statfs(path, &info) == 0 else { return nil }
+        return withUnsafePointer(to: &info.f_fstypename) {
+            $0.withMemoryRebound(to: CChar.self, capacity: Int(MFSNAMELEN)) {
+                String(cString: $0)
+            }
+        }
+    }
+
+    func isNetworkVolume(fileSystemType: String?) -> Bool {
+        guard let type = fileSystemType?.lowercased() else { return false }
+        return ["smbfs", "cifs", "nfs", "afpfs", "webdav"].contains(type)
+    }
+
+    func prepareManagedDriveMapping(for gameDirectory: String, prefix: String? = nil) throws -> ManagedWineDriveMapping {
+        let pfx = prefix ?? Self.defaultPrefixPath
+        let dosDevices = pfx + "/dosdevices"
+        try fileManager.createDirectory(atPath: dosDevices, withIntermediateDirectories: true)
+        try fileManager.createDirectory(atPath: Self.managedDriveMarkerPath, withIntermediateDirectories: true)
+
+        let target = URL(fileURLWithPath: gameDirectory).standardizedFileURL.path
+        for scalar in UnicodeScalar("g").value...UnicodeScalar("y").value {
+            guard let unicode = UnicodeScalar(scalar) else { continue }
+            let letter = String(Character(unicode))
+            let linkPath = dosDevices + "/" + letter + ":"
+            guard !pathExistsWithoutFollowingSymlink(linkPath) else { continue }
+
+            let markerPath = Self.managedDriveMarkerPath + "/" + letter
+            try fileManager.createSymbolicLink(atPath: linkPath, withDestinationPath: target)
+            do {
+                try target.write(toFile: markerPath, atomically: true, encoding: .utf8)
+            } catch {
+                try? fileManager.removeItem(atPath: linkPath)
+                throw error
+            }
+            return ManagedWineDriveMapping(
+                letter: letter,
+                targetPath: target,
+                linkPath: linkPath,
+                markerPath: markerPath
+            )
+        }
+
+        throw WineError.noAvailableDriveLetter
+    }
+
+    func cleanupManagedDriveMapping(_ mapping: ManagedWineDriveMapping) {
+        guard let recordedTarget = try? String(contentsOfFile: mapping.markerPath, encoding: .utf8),
+              recordedTarget == mapping.targetPath,
+              let linkTarget = try? fileManager.destinationOfSymbolicLink(atPath: mapping.linkPath),
+              linkTarget == recordedTarget else { return }
+        try? fileManager.removeItem(atPath: mapping.linkPath)
+        try? fileManager.removeItem(atPath: mapping.markerPath)
+    }
+
+    func cleanupStaleManagedDriveMappings(prefix: String? = nil) {
+        let pfx = prefix ?? Self.defaultPrefixPath
+        let dosDevices = pfx + "/dosdevices"
+        guard let markers = try? fileManager.contentsOfDirectory(atPath: Self.managedDriveMarkerPath) else { return }
+
+        for letter in markers where letter.count == 1 {
+            let markerPath = Self.managedDriveMarkerPath + "/" + letter
+            let linkPath = dosDevices + "/" + letter + ":"
+            guard let recordedTarget = try? String(contentsOfFile: markerPath, encoding: .utf8) else { continue }
+            if let linkTarget = try? fileManager.destinationOfSymbolicLink(atPath: linkPath),
+               linkTarget == recordedTarget {
+                try? fileManager.removeItem(atPath: linkPath)
+            }
+            try? fileManager.removeItem(atPath: markerPath)
+        }
+    }
+
+    private func pathExistsWithoutFollowingSymlink(_ path: String) -> Bool {
+        var info = stat()
+        return lstat(path, &info) == 0
+    }
+
     // MARK: - Wait for Wine Server Off
 
     func waitForWineServerOff(prefix: String? = nil) async throws {
@@ -839,6 +928,7 @@ enum WineError: LocalizedError {
     case extractionFailed
     case invalidURL(String)
     case registryFailed(String)
+    case noAvailableDriveLetter
 
     var errorDescription: String? {
         switch self {
@@ -848,6 +938,7 @@ enum WineError: LocalizedError {
         case .extractionFailed: return "Failed to extract Wine archive."
         case .invalidURL(let url): return "Invalid URL: \(url)"
         case .registryFailed(let msg): return "Registry operation failed: \(msg)"
+        case .noAvailableDriveLetter: return "Mounted-volume compatibility could not find a free Wine drive letter between G: and Y:."
         }
     }
 }

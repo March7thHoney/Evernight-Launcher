@@ -119,21 +119,23 @@ struct RegistryManager {
 
     static func generateResolutionRegistryEntries(
         gameType: GameType,
+        isMainlandChinaHSR: Bool = false,
         width: Int,
         height: Int,
         fullscreen: Bool = false
     ) -> [Entry] {
-        let widthBytes = withUnsafeBytes(of: Int32(width).littleEndian) { Array($0) }
-        let heightBytes = withUnsafeBytes(of: Int32(height).littleEndian) { Array($0) }
-        let fullscreenValue: UInt32 = fullscreen ? 1 : 0
+        let fullscreenMode: UInt32 = fullscreen ? 1 : 3
+        let resolution = "{\"width\":\(width),\"height\":\(height),\"isFullScreen\":\(fullscreen)}"
 
         return [
             (
-                key: gameSettingsRegistryKey(for: gameType),
+                key: gameSettingsRegistryKey(for: gameType, isMainlandChinaHSR: isMainlandChinaHSR),
                 values: [
-                    ("Screenmanager Resolution Width_h182942802", .hex(widthBytes.map { UInt8($0) })),
-                    ("Screenmanager Resolution Height_h2627697771", .hex(heightBytes.map { UInt8($0) })),
-                    ("Screenmanager Is Fullscreen mode_h3981298716", .dword(fullscreenValue)),
+                    ("GraphicsSettings_PCResolution_h431323223", .hex(Array((resolution + "\0").utf8))),
+                    ("Screenmanager Fullscreen mode_h3630240806", .dword(fullscreenMode)),
+                    ("Screenmanager Resolution Width_h182942802", .dword(UInt32(clamping: width))),
+                    ("Screenmanager Resolution Height_h2627697771", .dword(UInt32(clamping: height))),
+                    ("Screenmanager Resolution Use Native_h1405027254", .dword(0)),
                 ]
             )
         ]
@@ -268,12 +270,14 @@ struct RegistryManager {
         )
     }
 
-    private static func gameSettingsRegistryKey(for gameType: GameType) -> String {
+    private static func gameSettingsRegistryKey(for gameType: GameType, isMainlandChinaHSR: Bool = false) -> String {
         switch gameType {
         case .genshinImpact:
             return "HKEY_CURRENT_USER\\Software\\\\x6d\\x69\\x48\\x6f\\x59\\x6f\\\\GenshinImpact"
         case .honkaiStarRail:
-            return "HKEY_CURRENT_USER\\Software\\Cognosphere\\Star Rail"
+            return isMainlandChinaHSR
+                ? "HKEY_CURRENT_USER\\Software\\miHoYo\\崩坏：星穹铁道"
+                : "HKEY_CURRENT_USER\\Software\\Cognosphere\\Star Rail"
         case .zenlessZoneZero:
             return "HKEY_CURRENT_USER\\Software\\miHoYo\\ZenlessZoneZero"
         }
