@@ -7,6 +7,7 @@ struct GameConfig: Codable, Equatable {
     var installDirectory: String?
     var textLanguage: String = "en"
     var installedVersion: String?
+    var officialRegion: OfficialGameRegion = .mainlandChina
 
     // Wine settings
     var useGlobalWineSettings: Bool = true
@@ -85,7 +86,7 @@ struct GameConfig: Codable, Equatable {
     // MARK: - Codable & Initializers
     
     enum CodingKeys: String, CodingKey {
-        case gameType, installDirectory, textLanguage, installedVersion
+        case gameType, installDirectory, textLanguage, installedVersion, officialRegion
         case useGlobalWineSettings, wineSourceMode, customWinePath, wineDistribution, retinaMode, leftCommandIsCtrl
         case enableDXMT, installedDXMTVersion, metalHUD, enableHDR
         case customResolution, resolutionWidth, resolutionHeight
@@ -100,6 +101,7 @@ struct GameConfig: Codable, Equatable {
         self.installDirectory = nil
         self.textLanguage = "en"
         self.installedVersion = nil
+        self.officialRegion = .mainlandChina
         self.useGlobalWineSettings = true
         self.wineSourceMode = .github
         self.customWinePath = ""
@@ -130,6 +132,7 @@ struct GameConfig: Codable, Equatable {
         self.installDirectory = try container.decodeIfPresent(String.self, forKey: .installDirectory)
         self.textLanguage = try container.decodeIfPresent(String.self, forKey: .textLanguage) ?? "en"
         self.installedVersion = try container.decodeIfPresent(String.self, forKey: .installedVersion)
+        self.officialRegion = try container.decodeIfPresent(OfficialGameRegion.self, forKey: .officialRegion) ?? .mainlandChina
         
         self.useGlobalWineSettings = try container.decodeIfPresent(Bool.self, forKey: .useGlobalWineSettings) ?? true
         self.wineSourceMode = try container.decodeIfPresent(WineSourceMode.self, forKey: .wineSourceMode) ?? .github

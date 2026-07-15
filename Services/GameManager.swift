@@ -13,11 +13,15 @@ class GameManager {
 
     let downloadManager = DownloadManager()
     let wineManager = WineManager()
-    let gameClientUpdateManager = GameClientUpdateManager()
+    let gameClientUpdateManager: GameClientUpdateManager
+    let officialClientManager: OfficialGameClientManager
     let api = GameServerAPI.shared
     private var activeProxyProcess: Process?
 
     init() {
+        let patchManager = GameClientUpdateManager()
+        self.gameClientUpdateManager = patchManager
+        self.officialClientManager = OfficialGameClientManager(patchManager: patchManager)
         let settings = LauncherSettings.load()
         self.settings = settings
         // Only HSR is exposed; clamp any previously-persisted selection (e.g. Genshin) to a displayed game.
@@ -222,6 +226,13 @@ class GameManager {
                     }
                 }
 
+                if type == .honkaiStarRail,
+                   let region = OfficialGameClientManager.detectRegion(at: dir) {
+                    settings.updateConfig(for: type) { $0.officialRegion = region }
+                    settings.save()
+                }
+                officialClientManager.refreshInstalledInfo(directory: dir)
+
                 // Always allow running the installed version; skip update checks.
                 await MainActor.run {
                     gameStates[type] = .ready
@@ -236,9 +247,8 @@ class GameManager {
 
     private func isGamePresent(_ type: GameType, at dir: String) -> Bool {
         let fm = FileManager.default
-        if fm.fileExists(atPath: dir + "/" + type.executable) { return true }
-        if fm.fileExists(atPath: dir + "/" + type.dataDir) { return true }
-        return false
+        return fm.fileExists(atPath: dir + "/" + type.executable)
+            && fm.fileExists(atPath: dir + "/" + type.dataDir)
     }
 
     // MARK: - Locate Existing Game
@@ -246,23 +256,19 @@ class GameManager {
     func locateGame(_ type: GameType) async {
         guard let url = await selectInstallDirectory(for: type) else { return }
         let dir = url.path
+        let present = isGamePresent(type, at: dir)
+        let version = present ? GameVersionDetector.detectInstalledVersion(gameType: type, installDir: dir) : nil
+        let region = present ? OfficialGameClientManager.detectRegion(at: dir) : nil
 
-        if isGamePresent(type, at: dir) {
-            // Detect version
-            let version = GameVersionDetector.detectInstalledVersion(gameType: type, installDir: dir)
-
-            await MainActor.run {
-                settings.updateConfig(for: type) { config in
-                    config.installDirectory = dir
-                    config.installedVersion = version
-                }
-                settings.save()
+        await MainActor.run {
+            settings.updateConfig(for: type) { config in
+                config.installDirectory = dir
+                config.installedVersion = version
+                if let region { config.officialRegion = region }
             }
-            await checkAllGameStates()
-        } else {
-            await MainActor.run {
-                reportError("Game not found in selected directory", for: type)
-            }
+            settings.save()
+            gameStates[type] = present ? .ready : .notInstalled
+            officialClientManager.refreshInstalledInfo(directory: present ? dir : nil)
         }
     }
 
@@ -326,84 +332,56 @@ class GameManager {
     // MARK: - Install Game
 
     func installGame(_ type: GameType) async {
-        guard let installURL = await selectInstallDirectory(for: type) else { return }
-
-        await MainActor.run {
-            settings.updateConfig(for: type) { config in
-                config.installDirectory = installURL.path
+        var config = settings.config(for: type)
+        if config.installDirectory == nil {
+            guard let installURL = await selectInstallDirectory(for: type) else { return }
+            config.installDirectory = installURL.path
+            await MainActor.run {
+                settings.updateConfig(for: type) { $0.installDirectory = installURL.path }
+                settings.save()
             }
-            settings.save()
-            gameStates[type] = .installing(progress: 0, status: "Preparing...")
         }
+        guard let directory = config.installDirectory else { return }
 
+        await MainActor.run { gameStates[type] = .installing(progress: 0, status: "Preparing download...") }
         do {
-            // Ensure Wine is ready
-            if !wineManager.status.isReady {
-                await MainActor.run {
-                    gameStates[type] = .installing(progress: 0, status: "Installing Wine...")
-                }
-                try await wineManager.installWine { [weak self] progress in
-                    Task { @MainActor in
-                        self?.gameStates[type] = .installing(
-                            progress: Double(progress.downloadProgress) * 0.2,
-                            status: progress.description
-                        )
-                    }
-                }
-            }
-
-            let manifest = try await api.fetchLatestVersion(for: games[type]!)
-            guard let major = manifest.main.major,
-                  let pkg = major.game_pkgs.first,
-                  let url = URL(string: pkg.url) else {
-                await MainActor.run { reportError("No download available", for: type) }
-                return
-            }
-
-            // Download and extract game
-            downloadManager.downloadAndExtract(
-                url: url,
-                to: installURL.path,
-                id: type.rawValue,
-                gameType: type,
+            let version = try await officialClientManager.downloadGame(
+                to: directory,
+                region: config.officialRegion,
                 onProgress: { [weak self] progress, status in
                     Task { @MainActor in
-                        self?.gameStates[type] = .installing(
-                            progress: 0.2 + progress * 0.8,
-                            status: status
-                        )
-                    }
-                },
-                onComplete: { [weak self] result in
-                    Task { @MainActor in
-                        switch result {
-                        case .success:
-                            self?.settings.updateConfig(for: type) { config in
-                                config.installedVersion = major.version
-                            }
-                            self?.settings.save()
-                            self?.gameStates[type] = .ready
-                        case .failure(let error):
-                            self?.reportError(error.localizedDescription, for: type)
-                        }
+                        self?.gameStates[type] = .installing(progress: progress, status: status)
                     }
                 }
             )
-        } catch {
             await MainActor.run {
-                reportError(error.localizedDescription, for: type)
+                settings.updateConfig(for: type) { $0.installedVersion = version }
+                settings.save()
+                gameStates[type] = .ready
             }
+        } catch {
+            await MainActor.run { reportError(error.localizedDescription, for: type) }
         }
     }
 
     // MARK: - Update Game
 
     func updateGame(_ type: GameType) async {
-        await MainActor.run {
-            gameStates[type] = .updating(progress: 0, status: "Checking update...")
+        let config = settings.config(for: type)
+        guard let directory = config.installDirectory else { return }
+        do {
+            let version = try await officialClientManager.updateGame(
+                directory: directory,
+                region: config.officialRegion
+            )
+            await MainActor.run {
+                settings.updateConfig(for: type) { $0.installedVersion = version }
+                settings.save()
+                gameStates[type] = .ready
+            }
+        } catch {
+            await MainActor.run { reportError(error.localizedDescription, for: type) }
         }
-        // For now, re-install (full Sophon diff-update would require the Python backend)
-        await installGame(type)
     }
 
     // MARK: - Full 4-Phase Game Launch

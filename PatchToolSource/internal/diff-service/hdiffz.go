@@ -63,8 +63,11 @@ func (h *DiffService) VersionValidate(gamePath, patchPath string) (bool, string)
 	okFull, errFull := sevenzip.IsFileIn7z(patchPath, "StarRail_Data/StreamingAssets/BinaryVersion.bytes")
 	okDiff, errDiff := sevenzip.IsFileIn7z(patchPath, "StarRail_Data/StreamingAssets/BinaryVersion.bytes.hdiff")
 
-	if (errFull != nil && errDiff != nil) || (!okFull && !okDiff) {
-		return false, "BinaryVersion file not found in patch"
+	if errFull != nil && errDiff != nil {
+		return false, errFull.Error()
+	}
+	if !okFull && !okDiff {
+		return true, "validated without BinaryVersion"
 	}
 
 	var tempBinFile string
@@ -206,11 +209,28 @@ func (h *DiffService) HDiffPatchData(gamePath string) (bool, string) {
 	var wg sync.WaitGroup
 	jobs := make(chan *models.HDiffData, len(jsonData.DiffMap))
 	var progress int32
+	var errorMu sync.Mutex
+	var firstError error
+	setError := func(err error) {
+		errorMu.Lock()
+		defer errorMu.Unlock()
+		if firstError == nil {
+			firstError = err
+		}
+	}
+	hasError := func() bool {
+		errorMu.Lock()
+		defer errorMu.Unlock()
+		return firstError != nil
+	}
 
 	workerCount := max(1, runtime.NumCPU()/2)
 	for i := 0; i < workerCount; i++ {
 		wg.Go(func() {
 			for entry := range jobs {
+				if hasError() {
+					continue
+				}
 				currentProgress := atomic.AddInt32(&progress, 1)
 				emitProgress(int(currentProgress), len(jsonData.DiffMap))
 
@@ -218,22 +238,72 @@ func (h *DiffService) HDiffPatchData(gamePath string) (bool, string) {
 				patchFile := filepath.Join(gamePath, filepath.FromSlash(strings.ReplaceAll(entry.PatchFileName, "\\", "/")))
 				targetFile := filepath.Join(gamePath, filepath.FromSlash(strings.ReplaceAll(entry.TargetFileName, "\\", "/")))
 
-				if _, err := os.Stat(patchFile); os.IsNotExist(err) {
+				if _, err := os.Stat(patchFile); err != nil {
+					setError(fmt.Errorf("patch file missing: %s", entry.PatchFileName))
+					continue
+				}
+				if entry.PatchFileSize > 0 {
+					info, err := os.Stat(patchFile)
+					if err != nil || info.Size() != entry.PatchFileSize {
+						setError(fmt.Errorf("patch size mismatch: %s", entry.PatchFileName))
+						continue
+					}
+				}
+				if entry.PatchFileMD5 != "" {
+					actual, err := verifier.FileMD5(patchFile)
+					if err != nil || !strings.EqualFold(actual, entry.PatchFileMD5) {
+						setError(fmt.Errorf("patch md5 mismatch: %s", entry.PatchFileName))
+						continue
+					}
+				}
+				if err := os.MkdirAll(filepath.Dir(targetFile), os.ModePerm); err != nil {
+					setError(err)
 					continue
 				}
 
 				if entry.SourceFileName == "" {
-					hpatchz.ApplyPatchEmpty(patchFile, targetFile)
-					os.Remove(patchFile)
-					continue
+					if err := hpatchz.ApplyPatchEmpty(patchFile, targetFile); err != nil {
+						setError(err)
+						continue
+					}
+				} else {
+					info, err := os.Stat(sourceFile)
+					if err != nil {
+						setError(fmt.Errorf("source file missing: %s", entry.SourceFileName))
+						continue
+					}
+					if entry.SourceFileSize > 0 && info.Size() != entry.SourceFileSize {
+						setError(fmt.Errorf("source size mismatch: %s", entry.SourceFileName))
+						continue
+					}
+					if entry.SourceFileMD5 != "" {
+						actual, err := verifier.FileMD5(sourceFile)
+						if err != nil || !strings.EqualFold(actual, entry.SourceFileMD5) {
+							setError(fmt.Errorf("source md5 mismatch: %s", entry.SourceFileName))
+							continue
+						}
+					}
+					if err := hpatchz.ApplyPatch(sourceFile, patchFile, targetFile); err != nil {
+						setError(err)
+						continue
+					}
 				}
 
-				if _, err := os.Stat(sourceFile); os.IsNotExist(err) {
-					continue
+				if entry.TargetFileSize > 0 {
+					info, err := os.Stat(targetFile)
+					if err != nil || info.Size() != entry.TargetFileSize {
+						setError(fmt.Errorf("target size mismatch: %s", entry.TargetFileName))
+						continue
+					}
 				}
-
-				hpatchz.ApplyPatch(sourceFile, patchFile, targetFile)
-				if entry.SourceFileName != entry.TargetFileName {
+				if entry.TargetFileMD5 != "" {
+					actual, err := verifier.FileMD5(targetFile)
+					if err != nil || !strings.EqualFold(actual, entry.TargetFileMD5) {
+						setError(fmt.Errorf("target md5 mismatch: %s", entry.TargetFileName))
+						continue
+					}
+				}
+				if entry.SourceFileName != "" && entry.SourceFileName != entry.TargetFileName {
 					os.Remove(sourceFile)
 				}
 				os.Remove(patchFile)
@@ -246,6 +316,9 @@ func (h *DiffService) HDiffPatchData(gamePath string) (bool, string) {
 	}
 	close(jobs)
 	wg.Wait()
+	if firstError != nil {
+		return false, firstError.Error()
+	}
 
 	os.Remove(filepath.Join(gamePath, "hdiffmap.json"))
 	os.Remove(filepath.Join(gamePath, "hdifffiles.txt"))

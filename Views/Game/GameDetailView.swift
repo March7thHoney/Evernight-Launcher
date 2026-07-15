@@ -250,6 +250,8 @@ struct GameSettingsContent: View {
     @State private var patchFileURL: URL?
     @State private var updateStatus: String?
     @State private var updateStatusIsError = false
+    @State private var showRepairConfirmation = false
+    @State private var showVoiceConfirmation = false
 
     var body: some View {
         VStack(alignment: .leading, spacing: 20) {
@@ -314,6 +316,95 @@ struct GameSettingsContent: View {
 
                     settingsGroup("Game Client Update") {
                         HStack {
+                            Text("Install Directory")
+                            Spacer()
+                            Text(gameDirectory ?? "Not selected")
+                                .font(.caption.monospaced())
+                                .foregroundStyle(.secondary)
+                                .lineLimit(1)
+                                .truncationMode(.middle)
+                                .frame(maxWidth: 280, alignment: .trailing)
+                        }
+
+                        Picker("Official Region", selection: configBinding(\.officialRegion)) {
+                            ForEach(OfficialGameRegion.allCases) { region in
+                                Text(region.displayName).tag(region)
+                            }
+                        }
+                        .disabled(hasInstalledClient)
+
+                        HStack {
+                            Text("Installed Version")
+                            Spacer()
+                            Text(gameManager.officialClientManager.installedVersion ?? "Not installed")
+                                .foregroundStyle(.secondary)
+                        }
+
+                        HStack {
+                            Text("Latest Official Version")
+                            Spacer()
+                            Text(gameManager.officialClientManager.latestVersion ?? "Not checked")
+                                .foregroundStyle(.secondary)
+                        }
+
+                        HStack {
+                            if hasInstalledClient {
+                                Button("Check for Updates") { checkOfficialUpdate() }
+                                    .buttonStyle(.bordered)
+                                    .disabled(gameManager.officialClientManager.isRunning)
+                                Button("Update") { updateOfficialClient() }
+                                    .buttonStyle(.borderedProminent)
+                                    .disabled(!gameManager.officialClientManager.updateAvailable
+                                              || gameManager.officialClientManager.isRunning)
+                            } else {
+                                Button("Download Game") {
+                                    Task { await gameManager.installGame(gameType) }
+                                }
+                                .buttonStyle(.borderedProminent)
+                                .disabled(gameManager.officialClientManager.isRunning)
+                            }
+                            Spacer()
+                        }
+
+                        if hasInstalledClient {
+                            HStack {
+                                Button("Quick Verify") { verifyOfficialFiles() }
+                                    .buttonStyle(.bordered)
+                                    .disabled(gameManager.officialClientManager.isRunning)
+                                Button("Repair Files") { showRepairConfirmation = true }
+                                    .buttonStyle(.bordered)
+                                    .disabled(gameManager.officialClientManager.integrityIssues.isEmpty
+                                              || gameManager.officialClientManager.isRunning)
+                                Button("Reinstall Chinese Voice") { showVoiceConfirmation = true }
+                                    .buttonStyle(.bordered)
+                                    .disabled(gameManager.officialClientManager.isRunning)
+                                Spacer()
+                            }
+                        }
+
+                        if gameManager.officialClientManager.isRunning {
+                            ProgressView(value: gameManager.officialClientManager.progress)
+                                .progressViewStyle(.linear)
+                            Text(gameManager.officialClientManager.stage)
+                                .font(.caption)
+                                .foregroundStyle(.secondary)
+                                .lineLimit(1)
+                                .truncationMode(.middle)
+                        }
+
+                        if !gameManager.officialClientManager.statusMessage.isEmpty {
+                            Text(gameManager.officialClientManager.statusMessage)
+                                .font(.caption)
+                                .foregroundStyle(.secondary)
+                                .textSelection(.enabled)
+                        }
+
+                        Divider().opacity(0.5)
+                        Text("Manual Patch")
+                            .font(.caption.weight(.semibold))
+                            .foregroundStyle(.secondary)
+
+                        HStack {
                             Button("Select Patch File…") { selectPatchFile() }
                                 .buttonStyle(.bordered)
                                 .controlSize(.small)
@@ -355,9 +446,6 @@ struct GameSettingsContent: View {
                                 .truncationMode(.middle)
                         }
 
-                        Text("Select an ldiff/hdiff patch archive (.7z/.zip/.rar) to update the game client. Install the game first.")
-                            .font(.caption)
-                            .foregroundStyle(.secondary)
                     }
 
                     settingsGroup("Wine") {
@@ -474,7 +562,100 @@ struct GameSettingsContent: View {
                             .help("Uses a short Wine drive path only for games on SMB or other network volumes.")
                     }
         }
-        .onAppear { syncTextLanguageFromGame() }
+        .onAppear {
+            syncTextLanguageFromGame()
+            gameManager.officialClientManager.refreshInstalledInfo(directory: hasInstalledClient ? gameDirectory : nil)
+        }
+        .alert("Repair Official Files?", isPresented: $showRepairConfirmation) {
+            Button("Cancel", role: .cancel) {}
+            Button("Repair") { repairOfficialFiles() }
+        } message: {
+            Text("Damaged files will be replaced with official copies. This may undo Text Language or other resource modifications.")
+        }
+        .confirmationDialog(
+            "Reinstall Chinese Voice?",
+            isPresented: $showVoiceConfirmation,
+            titleVisibility: .visible
+        ) {
+            Button("Download and Reinstall") { reinstallChineseVoice() }
+            Button("Cancel", role: .cancel) {}
+        } message: {
+            Text("This downloads approximately 11.5 GB and replaces the Chinese voice package.")
+        }
+    }
+
+    private var gameDirectory: String? {
+        gameManager.settings.config(for: gameType).installDirectory
+    }
+
+    private var hasInstalledClient: Bool {
+        guard let gameDirectory else { return false }
+        let fm = FileManager.default
+        return fm.fileExists(atPath: gameDirectory + "/StarRail.exe")
+            && fm.fileExists(atPath: gameDirectory + "/StarRail_Data")
+    }
+
+    private func checkOfficialUpdate() {
+        guard let directory = gameDirectory else { return }
+        let region = gameManager.settings.config(for: gameType).officialRegion
+        Task {
+            do {
+                try await gameManager.officialClientManager.checkForUpdates(directory: directory, region: region)
+            } catch {
+                gameManager.officialClientManager.statusMessage = error.localizedDescription
+            }
+        }
+    }
+
+    private func updateOfficialClient() {
+        guard let directory = gameDirectory else { return }
+        let region = gameManager.settings.config(for: gameType).officialRegion
+        Task {
+            do {
+                let version = try await gameManager.officialClientManager.updateGame(directory: directory, region: region)
+                gameManager.settings.updateConfig(for: gameType) { $0.installedVersion = version }
+                gameManager.settings.save()
+                await gameManager.checkAllGameStates()
+            } catch {
+                gameManager.officialClientManager.statusMessage = error.localizedDescription
+            }
+        }
+    }
+
+    private func verifyOfficialFiles() {
+        guard let directory = gameDirectory else { return }
+        let region = gameManager.settings.config(for: gameType).officialRegion
+        Task {
+            do {
+                _ = try await gameManager.officialClientManager.verifyFiles(directory: directory, region: region)
+            } catch {
+                gameManager.officialClientManager.statusMessage = error.localizedDescription
+            }
+        }
+    }
+
+    private func repairOfficialFiles() {
+        guard let directory = gameDirectory else { return }
+        let region = gameManager.settings.config(for: gameType).officialRegion
+        Task {
+            do {
+                try await gameManager.officialClientManager.repairFiles(directory: directory, region: region)
+            } catch {
+                gameManager.officialClientManager.statusMessage = error.localizedDescription
+            }
+        }
+    }
+
+    private func reinstallChineseVoice() {
+        guard let directory = gameDirectory else { return }
+        let region = gameManager.settings.config(for: gameType).officialRegion
+        Task {
+            do {
+                try await gameManager.officialClientManager.reinstallChineseVoice(directory: directory, region: region)
+            } catch {
+                gameManager.officialClientManager.statusMessage = error.localizedDescription
+            }
+        }
     }
 
     // Best-effort: reflect the game's current text language in the picker.
