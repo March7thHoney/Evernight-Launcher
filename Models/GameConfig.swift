@@ -192,6 +192,7 @@ struct LauncherSettings: Codable {
     var selectedWineDistribution: String = WineManager.defaultDistribution.id
     var wineSourceMode: WineSourceMode = .github
     var customWinePath: String = ""     // Path to Wine folder when mode == .custom
+    var enableMountedVolumeCompatibility: Bool = false
 
     func config(for game: GameType) -> GameConfig {
         gameConfigs[game] ?? GameConfig(gameType: game)
@@ -213,6 +214,7 @@ struct LauncherSettings: Codable {
         case selectedWineDistribution
         case wineSourceMode
         case customWinePath
+        case enableMountedVolumeCompatibility
     }
 
     init() {
@@ -222,6 +224,7 @@ struct LauncherSettings: Codable {
         self.selectedWineDistribution = WineManager.defaultDistribution.id
         self.wineSourceMode = .github
         self.customWinePath = ""
+        self.enableMountedVolumeCompatibility = false
     }
 
     init(from decoder: Decoder) throws {
@@ -232,6 +235,7 @@ struct LauncherSettings: Codable {
         self.selectedWineDistribution = try container.decodeIfPresent(String.self, forKey: .selectedWineDistribution) ?? WineManager.defaultDistribution.id
         self.wineSourceMode = try container.decodeIfPresent(WineSourceMode.self, forKey: .wineSourceMode) ?? .github
         self.customWinePath = try container.decodeIfPresent(String.self, forKey: .customWinePath) ?? ""
+        self.enableMountedVolumeCompatibility = try container.decodeIfPresent(Bool.self, forKey: .enableMountedVolumeCompatibility) ?? false
     }
 
     // MARK: - Persistence

@@ -470,6 +470,8 @@ struct GameSettingsContent: View {
                         Toggle("WINEMSYNC", isOn: configBinding(\.winemsync))
                         Toggle("Steam Emulation", isOn: configBinding(\.useSteamPatch))
                         Toggle("ReShade", isOn: configBinding(\.enableReShade))
+                        Toggle("Windows Mounted-Volume Compatibility (Experimental)", isOn: mountedVolumeCompatibilityBinding)
+                            .help("Uses a short Wine drive path only for games on SMB or other network volumes.")
                     }
         }
         .onAppear { syncTextLanguageFromGame() }
@@ -569,6 +571,16 @@ struct GameSettingsContent: View {
                 gameManager.settings.updateConfig(for: gameType) { config in
                     config[keyPath: keyPath] = newValue
                 }
+                gameManager.settings.save()
+            }
+        )
+    }
+
+    private var mountedVolumeCompatibilityBinding: Binding<Bool> {
+        Binding(
+            get: { gameManager.settings.enableMountedVolumeCompatibility },
+            set: {
+                gameManager.settings.enableMountedVolumeCompatibility = $0
                 gameManager.settings.save()
             }
         )
