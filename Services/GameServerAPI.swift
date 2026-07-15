@@ -56,6 +56,19 @@ actor GameServerAPI {
         return game
     }
 
+    func fetchStarRailManifest(region: OfficialGameRegion) async throws -> GamePackageManifest {
+        let (data, response) = try await session.data(from: region.packageURL)
+        guard let http = response as? HTTPURLResponse, (200...299).contains(http.statusCode) else {
+            throw APIError.invalidResponse
+        }
+        let result = try JSONDecoder().decode(HypConnectResponse<GamePackagesData>.self, from: data)
+        guard result.retcode == 0,
+              let game = result.data.game_packages.first(where: { $0.game.biz == region.bizId }) else {
+            throw APIError.gameNotFound(region.bizId)
+        }
+        return game
+    }
+
     enum APIError: LocalizedError {
         case gameNotFound(String)
         case invalidResponse

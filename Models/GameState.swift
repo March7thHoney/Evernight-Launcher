@@ -29,7 +29,7 @@ enum GameState: Equatable {
 
     var actionLabel: String {
         switch self {
-        case .notInstalled: return "Install"
+        case .notInstalled: return "Download Game"
         case .checkingForUpdates: return "Checking..."
         case .installing(let p, _): return "Installing \(Int(p * 100))%"
         case .updating(let p, _): return "Updating \(Int(p * 100))%"

@@ -1,5 +1,35 @@
 import Foundation
 
+enum OfficialGameRegion: String, Codable, CaseIterable, Identifiable {
+    case mainlandChina
+    case global
+
+    var id: String { rawValue }
+
+    var displayName: String {
+        switch self {
+        case .mainlandChina: return "Mainland China"
+        case .global: return "Global"
+        }
+    }
+
+    var bizId: String {
+        switch self {
+        case .mainlandChina: return "hkrpg_cn"
+        case .global: return "hkrpg_global"
+        }
+    }
+
+    var packageURL: URL {
+        switch self {
+        case .mainlandChina:
+            return URL(string: "https://hyp-api.mihoyo.com/hyp/hyp-connect/api/getGamePackages?launcher_id=jGHBHlcOq1&game_ids%5B%5D=64kMb5iAWu&language=zh-cn")!
+        case .global:
+            return URL(string: "https://sg-hyp-api.hoyoverse.com/hyp/hyp-connect/api/getGamePackages?launcher_id=VYTpXlbWo8&game_ids%5B%5D=4ziysqXOQ8")!
+        }
+    }
+}
+
 // MARK: - Game Info (Server configuration + HoyoConnect data)
 
 struct GameInfo: Identifiable {
@@ -62,6 +92,9 @@ struct GamePackageManifest: Decodable {
         let size: String
         let md5: String
         let decompressed_size: String?
+
+        var byteCount: Int64 { Int64(size) ?? 0 }
+        var decompressedByteCount: Int64 { Int64(decompressed_size ?? "") ?? 0 }
     }
 
     struct AudioPackage: Decodable {
@@ -70,6 +103,9 @@ struct GamePackageManifest: Decodable {
         let size: String
         let md5: String
         let decompressed_size: String?
+
+        var byteCount: Int64 { Int64(size) ?? 0 }
+        var decompressedByteCount: Int64 { Int64(decompressed_size ?? "") ?? 0 }
     }
 }
 

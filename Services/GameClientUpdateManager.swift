@@ -14,6 +14,7 @@ class GameClientUpdateManager {
 
     // Managed dir holding patch-cli plus bin/{hpatchz,7zz}; also where patch-cli extracts to (temp/).
     static let toolDir = WineManager.basePath + "/patchtool"
+    var sevenZipPath: String { Self.toolDir + "/bin/7zz" }
 
     // Bundle resource name → deployed path. hpatchz/7zz are renamed to what patch-cli's constant pkg expects.
     private var toolMapping: [(bundled: String, dst: String)] {
@@ -83,7 +84,7 @@ class GameClientUpdateManager {
     // MARK: - Tool provisioning
 
     // Copy the three bundled binaries out of the app into the managed dir, then mark executable + ad-hoc sign.
-    private func ensureToolsAvailable() throws {
+    func ensureToolsAvailable() throws {
         let fm = FileManager.default
         try fm.createDirectory(atPath: Self.toolDir + "/bin", withIntermediateDirectories: true)
 
