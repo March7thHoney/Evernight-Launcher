@@ -469,6 +469,9 @@ class GameManager {
                 launchLog.info("[Phase 0] Managed Wine drive: \(mapping.wineRootPath) -> \(mapping.targetPath)")
             }
             launchLog.info("[Phase 0] Final Wine game path: \(wineGameDir)")
+            let isMainlandChinaHSR = type == .honkaiStarRail
+                && isMainlandChinaHSRInstall(at: installDir)
+            let usesMountedCNCompatibility = managedDriveMapping != nil && isMainlandChinaHSR
 
             // 0. Start the redirect proxy (March7thHoney) if enabled
             if config.requiresRedirectProxy {
@@ -537,6 +540,7 @@ class GameManager {
             if config.customResolution {
                 registryEntries += RegistryManager.generateResolutionRegistryEntries(
                     gameType: type,
+                    isMainlandChinaHSR: isMainlandChinaHSR,
                     width: config.resolutionWidth,
                     height: config.resolutionHeight,
                     fullscreen: false
@@ -672,9 +676,7 @@ class GameManager {
             var env: [String: String] = [:]
             let baseDir = WineManager.basePath
 
-            if managedDriveMapping != nil,
-               type == .honkaiStarRail,
-               isMainlandChinaHSRInstall(at: installDir) {
+            if usesMountedCNCompatibility {
                 env["LANG"] = "zh_CN.UTF-8"
                 env["LC_ALL"] = "zh_CN.UTF-8"
                 launchLog.info("[Phase 3] Using zh-CN process locale for mounted CN HSR")
@@ -951,6 +953,14 @@ class GameManager {
     }
 
     private func isMainlandChinaHSRInstall(at installDirectory: String) -> Bool {
+        let appInfoPath = installDirectory + "/StarRail_Data/app.info"
+        if let data = FileManager.default.contents(atPath: appInfoPath),
+           let contents = String(data: data, encoding: .utf8),
+           let company = contents.split(whereSeparator: \.isNewline).first {
+            return String(company).trimmingCharacters(in: .whitespacesAndNewlines)
+                .localizedCaseInsensitiveCompare("miHoYo") == .orderedSame
+        }
+
         let configPath = installDirectory + "/config.ini"
         guard let data = FileManager.default.contents(atPath: configPath),
               let contents = String(data: data, encoding: .utf8) else { return false }

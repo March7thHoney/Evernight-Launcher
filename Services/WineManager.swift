@@ -46,7 +46,7 @@ class WineManager {
         ),
         WineDistribution(
             id: "11.8-dxmt-signed-experimental",
-            displayName: "Wine 11.8 DXMT (signed, experimental)",
+            displayName: "Wine 11.8 DXMT (signed, recommended)",
             remoteUrl: "https://github.com/yaagl/anime-game-wine/releases/download/wine-11.8-signed/wine-devel-11.8-osx64-signed.tar.xz",
             format: .tarXz,
             winePath: "wine",
@@ -54,7 +54,7 @@ class WineManager {
         ),
         WineDistribution(
             id: "11.4-dxmt-signed",
-            displayName: "Wine 11.4 DXMT (signed, recommended)",
+            displayName: "Wine 11.4 DXMT (signed)",
             remoteUrl: "https://github.com/dawn-winery/dawn-signed/releases/download/wine-gcenx-11.4-osx64/wine-devel-11.4-osx64-signed.tar.xz",
             format: .tarXz,
             winePath: "wine-devel-11.4-osx64-signed/Contents/Resources/wine",
@@ -104,7 +104,7 @@ class WineManager {
         ),
     ]
 
-    static let defaultDistribution = distributions.first(where: { $0.id == "11.4-dxmt-signed" }) ?? distributions[0]
+    static let defaultDistribution = distributions.first(where: { $0.id == "11.8-dxmt-signed-experimental" }) ?? distributions[0]
 
     // MARK: - Persistent Wine State Keys
 
