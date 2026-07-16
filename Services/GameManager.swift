@@ -400,6 +400,7 @@ class GameManager {
         var launchRegistryPath: String?
         var batchPath: String?
         var managedDriveMapping: ManagedWineDriveMapping?
+        var officialBlockedHost: String?
         var wineGameDir = wineManager.toWinePath(installDir)
         
         let prefix = WineManager.defaultPrefixPath
@@ -450,6 +451,14 @@ class GameManager {
             let isMainlandChinaHSR = type == .honkaiStarRail
                 && isMainlandChinaHSRInstall(at: installDir)
             let usesMountedCNCompatibility = managedDriveMapping != nil && isMainlandChinaHSR
+
+            if type == .honkaiStarRail && !config.requiresRedirectProxy {
+                let blockedHost = isMainlandChinaHSR
+                    ? "globaldp-prod-cn01.bhsr.com"
+                    : "globaldp-prod-os01.starrails.com"
+                officialBlockedHost = blockedHost
+                launchLog.info("[Phase 1] Official launch isolation prepared for \(blockedHost)")
+            }
 
             // 0. Start the redirect proxy (March7thHoney) if enabled
             if config.requiresRedirectProxy {
@@ -537,7 +546,7 @@ class GameManager {
                 registryEntries += entries
             }
 
-            if isProxyEnabled {
+            if config.requiresRedirectProxy {
                 launchLog.info("[Phase 1] Adding macOS Keychain certificates to launch registry...")
                 if let entries = await RegistryManager.macCertificateRegistryEntries() {
                     registryEntries += entries
@@ -738,6 +747,11 @@ class GameManager {
             if env["WINEMSYNC"] != nil {
                 launchLog.info("[Phase 3] Ensuring no stale wineserver before WINEMSYNC launch...")
                 try? await wineManager.waitForWineServerOff(prefix: prefix)
+            }
+
+            if let officialBlockedHost {
+                try OfficialHSRLaunchBlocker.configure(environment: &env, blockedHost: officialBlockedHost)
+                launchLog.info("[Phase 3] Blocking \(officialBlockedHost) in the Wine process for \(Int(OfficialHSRLaunchBlocker.blockDuration)) seconds")
             }
 
             // 3e. Execute via Wine (cmd /c config.bat)

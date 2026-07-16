@@ -4,8 +4,8 @@ import Foundation
 
 struct JadeiteManager {
 
-    static let currentVersion = "4.1.0"
-    static let downloadURL = "https://codeberg.org/mkrsym1/jadeite/releases/download/v4.1.0/v4.1.0.zip"
+    static let currentVersion = "5.0.1"
+    static let downloadURL = "https://codeberg.org/mkrsym1/jadeite/releases/download/v5.0.1/v5.0.1.zip"
     static let jadeitePath = WineManager.basePath + "/jadeite"
     static let jadeiteExe = jadeitePath + "/jadeite.exe"
 
@@ -31,9 +31,10 @@ struct JadeiteManager {
 
     static func ensureJadeiteAvailable() async throws {
         let fm = FileManager.default
-        if fm.fileExists(atPath: jadeiteExe) { return }
+        let installedVersion = UserDefaults.standard.string(forKey: "jadeite_downloaded_version")
+        if fm.fileExists(atPath: jadeiteExe), installedVersion == currentVersion { return }
 
-        print("Jadeite not found locally, downloading v\(currentVersion)...")
+        print("Jadeite v\(currentVersion) is required, downloading...")
         try await downloadJadeite()
     }
 

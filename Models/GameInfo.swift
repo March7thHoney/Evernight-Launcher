@@ -8,8 +8,8 @@ enum OfficialGameRegion: String, Codable, CaseIterable, Identifiable {
 
     var displayName: String {
         switch self {
-        case .mainlandChina: return "Mainland China"
-        case .global: return "Global"
+        case .mainlandChina: return "CN"
+        case .global: return "OS"
         }
     }
 
