@@ -396,11 +396,11 @@ class GameManager {
         await MainActor.run { gameStates[type] = .launching }
 
         var freePort = 8080
-        var privateServerCertPath: String?
+        var proxyCertPath: String?
         var launchRegistryPath: String?
         var batchPath: String?
         var managedDriveMapping: ManagedWineDriveMapping?
-        var officialBlockedHost: String?
+        var proxyRegistryEnabled = false
         var wineGameDir = wineManager.toWinePath(installDir)
         
         let prefix = WineManager.defaultPrefixPath
@@ -451,26 +451,23 @@ class GameManager {
             let isMainlandChinaHSR = type == .honkaiStarRail
                 && isMainlandChinaHSRInstall(at: installDir)
             let usesMountedCNCompatibility = managedDriveMapping != nil && isMainlandChinaHSR
+            let usesOfficialHSRFilterProxy = type == .honkaiStarRail && !config.requiresRedirectProxy
 
-            if type == .honkaiStarRail && !config.requiresRedirectProxy {
-                let blockedHost = isMainlandChinaHSR
-                    ? "globaldp-prod-cn01.bhsr.com"
-                    : "globaldp-prod-os01.starrails.com"
-                officialBlockedHost = blockedHost
-                launchLog.info("[Phase 1] Official launch isolation prepared for \(blockedHost)")
-            }
-
-            // 0. Start the redirect proxy (March7thHoney) if enabled
-            if config.requiresRedirectProxy {
+            // 0. Start the private redirect proxy or the official security-file filter.
+            if config.requiresRedirectProxy || usesOfficialHSRFilterProxy {
                 let proxyPath = try await ensureProxyBinaryAvailable()
-                launchLog.info("[Phase 1] March7thHoney mode enabled. Preparing proxy...")
+                let proxyMode = config.requiresRedirectProxy ? "March7thHoney redirect" : "official pass-through filter"
+                launchLog.info("[Phase 1] Preparing Firefly proxy in \(proxyMode) mode...")
 
                 // 0b. Launch Proxy
                 freePort = findFreePort()
                 let proxyProcess = Process()
                 proxyProcess.executableURL = URL(fileURLWithPath: proxyPath)
-                let redirectHost = config.proxyRedirectHost
-                proxyProcess.arguments = ["-no-sys", "-p", String(freePort), "-r", redirectHost]
+                if config.requiresRedirectProxy {
+                    proxyProcess.arguments = ["-no-sys", "-p", String(freePort), "-r", config.proxyRedirectHost]
+                } else {
+                    proxyProcess.arguments = ["-no-sys", "-p", String(freePort), "-filter-only"]
+                }
                 proxyProcess.currentDirectoryURL = URL(fileURLWithPath: proxyDirectoryPath)
                 // Capture firefly output to a log so launch failures (forwarding, TLS) are diagnosable.
                 let fireflyLogPath = WineManager.logsPath + "/firefly.log"
@@ -483,7 +480,7 @@ class GameManager {
                     proxyProcess.standardError = FileHandle.nullDevice
                 }
 
-                launchLog.info("[Phase 1] Starting proxy at port \(freePort) redirecting to \(redirectHost)...")
+                launchLog.info("[Phase 1] Starting \(proxyMode) proxy at port \(freePort)...")
                 try proxyProcess.run()
                 self.activeProxyProcess = proxyProcess
                 
@@ -496,7 +493,7 @@ class GameManager {
                 }
                 
                 launchLog.info("[Phase 1] Firefly CA cert ready at \(caCertPath)")
-                privateServerCertPath = caCertPath
+                proxyCertPath = caCertPath
             }
 
             // ═══════════════════════════════════════════
@@ -534,14 +531,15 @@ class GameManager {
                 )
             }
 
-            let isProxyEnabled = config.requiresRedirectProxy
+            let isProxyEnabled = config.requiresRedirectProxy || usesOfficialHSRFilterProxy
+            proxyRegistryEnabled = isProxyEnabled
             let targetProxyHost = "127.0.0.1:\(freePort)"
             launchLog.info("[Phase 1] Configuring proxy registry (enabled=\(isProxyEnabled), host=\(targetProxyHost))...")
             registryEntries += RegistryManager.generateProxyRegistryEntries(enable: isProxyEnabled, proxyHost: targetProxyHost)
 
-            if let privateServerCertPath {
-                guard let entries = RegistryManager.certificateRegistryEntries(at: privateServerCertPath) else {
-                    throw NSError(domain: "ProxyManager", code: 500, userInfo: [NSLocalizedDescriptionKey: "Failed to parse Firefly CA certificate at \(privateServerCertPath)."])
+            if let proxyCertPath {
+                guard let entries = RegistryManager.certificateRegistryEntries(at: proxyCertPath) else {
+                    throw NSError(domain: "ProxyManager", code: 500, userInfo: [NSLocalizedDescriptionKey: "Failed to parse Firefly CA certificate at \(proxyCertPath)."])
                 }
                 registryEntries += entries
             }
@@ -587,7 +585,7 @@ class GameManager {
                 launchLog.info("[Phase 2] Jadeite ready at \(JadeiteManager.jadeiteExe)")
             }
 
-            // 2b2. Ensure bundled HSR-Patch (HSRLauncher + CyreneHook) for March7thHoney login redirect
+            // 2b2. Ensure bundled HSR-Patch for March7thHoney login redirect
             if config.useMarch7thHoney && type == .honkaiStarRail {
                 launchLog.info("[Phase 2] Ensuring HSR-Patch available...")
                 try HSRPatchManager.ensureAvailable()
@@ -715,7 +713,7 @@ class GameManager {
             }
 
             // Proxy
-            if config.requiresRedirectProxy {
+            if isProxyEnabled {
                 env["HTTP_PROXY"] = "127.0.0.1:\(freePort)"
                 env["HTTPS_PROXY"] = "127.0.0.1:\(freePort)"
             }
@@ -747,11 +745,6 @@ class GameManager {
             if env["WINEMSYNC"] != nil {
                 launchLog.info("[Phase 3] Ensuring no stale wineserver before WINEMSYNC launch...")
                 try? await wineManager.waitForWineServerOff(prefix: prefix)
-            }
-
-            if let officialBlockedHost {
-                try OfficialHSRLaunchBlocker.configure(environment: &env, blockedHost: officialBlockedHost)
-                launchLog.info("[Phase 3] Blocking \(officialBlockedHost) in the Wine process for \(Int(OfficialHSRLaunchBlocker.blockDuration)) seconds")
             }
 
             // 3e. Execute via Wine (cmd /c config.bat)
@@ -851,6 +844,15 @@ class GameManager {
                 activeProxyProcess?.terminate()
                 activeProxyProcess = nil
             }
+            if proxyRegistryEnabled {
+                do {
+                    try await disableWineProxy(prefix: prefix)
+                    proxyRegistryEnabled = false
+                    launchLog.info("[Phase 4] Disabled Wine proxy registry")
+                } catch {
+                    launchLog.info("[Phase 4] Failed to disable Wine proxy registry: \(error.localizedDescription)")
+                }
+            }
             launchLog.info("[Phase 4] Cleanup complete")
             launchLog.info("════════════════════════════════════════")
             await MainActor.run { gameStates[type] = .ready }
@@ -867,6 +869,10 @@ class GameManager {
             if activeProxyProcess != nil {
                 activeProxyProcess?.terminate()
                 activeProxyProcess = nil
+            }
+            if proxyRegistryEnabled {
+                try? await disableWineProxy(prefix: prefix)
+                proxyRegistryEnabled = false
             }
 
             if let path = launchRegistryPath {
@@ -904,6 +910,16 @@ class GameManager {
                 reportError(error.localizedDescription, for: type)
             }
         }
+    }
+
+    private func disableWineProxy(prefix: String) async throws {
+        let data = RegistryManager.generateProxyRegistry(enable: false, proxyHost: "")
+        let tempDir = WineManager.basePath + "/temp"
+        try FileManager.default.createDirectory(atPath: tempDir, withIntermediateDirectories: true)
+        let path = tempDir + "/disable-proxy-\(UUID().uuidString).reg"
+        try data.write(to: URL(fileURLWithPath: path))
+        defer { RegistryManager.revertRegistryFile(path: path) }
+        try await wineManager.applyRegistryFile(path, prefix: prefix)
     }
 
     // MARK: - Batch Script Generation
