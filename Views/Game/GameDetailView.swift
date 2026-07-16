@@ -251,7 +251,6 @@ struct GameSettingsContent: View {
     @State private var updateStatus: String?
     @State private var updateStatusIsError = false
     @State private var showRepairConfirmation = false
-    @State private var showVoiceConfirmation = false
     @State private var showBetaOfficialUpdateWarning = false
     @State private var showProductionManualPatchWarning = false
 
@@ -377,9 +376,6 @@ struct GameSettingsContent: View {
                                     .buttonStyle(.bordered)
                                     .disabled(gameManager.officialClientManager.integrityIssues.isEmpty
                                               || gameManager.officialClientManager.isRunning)
-                                Button("Reinstall Chinese Voice") { showVoiceConfirmation = true }
-                                    .buttonStyle(.bordered)
-                                    .disabled(gameManager.officialClientManager.isRunning)
                                 Spacer()
                             }
                         }
@@ -586,16 +582,6 @@ struct GameSettingsContent: View {
         } message: {
             Text("Version \(installedClientVersion ?? "unknown") is a production client. A manually selected diff/hdiff archive may target a Beta or different version and damage this client.")
         }
-        .confirmationDialog(
-            "Reinstall Chinese Voice?",
-            isPresented: $showVoiceConfirmation,
-            titleVisibility: .visible
-        ) {
-            Button("Download and Reinstall") { reinstallChineseVoice() }
-            Button("Cancel", role: .cancel) {}
-        } message: {
-            Text("This downloads approximately 11.5 GB and replaces the Chinese voice package.")
-        }
     }
 
     private var gameDirectory: String? {
@@ -675,18 +661,6 @@ struct GameSettingsContent: View {
         Task {
             do {
                 try await gameManager.officialClientManager.repairFiles(directory: directory, region: region)
-            } catch {
-                gameManager.officialClientManager.statusMessage = error.localizedDescription
-            }
-        }
-    }
-
-    private func reinstallChineseVoice() {
-        guard let directory = gameDirectory else { return }
-        let region = gameManager.settings.config(for: gameType).officialRegion
-        Task {
-            do {
-                try await gameManager.officialClientManager.reinstallChineseVoice(directory: directory, region: region)
             } catch {
                 gameManager.officialClientManager.statusMessage = error.localizedDescription
             }
