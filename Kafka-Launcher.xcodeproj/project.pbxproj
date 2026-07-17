@@ -300,7 +300,7 @@
 					"$(inherited)",
 					"@executable_path/../Frameworks",
 				);
-				MARKETING_VERSION = 1.2.1;
+				MARKETING_VERSION = 1.2.2;
 				PRODUCT_BUNDLE_IDENTIFIER = "com.march7thhoney.evernight-launcher";
 				PRODUCT_NAME = "Evernight Launcher";
 				PRODUCT_MODULE_NAME = Kafka_Launcher;
@@ -335,7 +335,7 @@
 					"$(inherited)",
 					"@executable_path/../Frameworks",
 				);
-				MARKETING_VERSION = 1.2.1;
+				MARKETING_VERSION = 1.2.2;
 				PRODUCT_BUNDLE_IDENTIFIER = "com.march7thhoney.evernight-launcher";
 				PRODUCT_NAME = "Evernight Launcher";
 				PRODUCT_MODULE_NAME = Kafka_Launcher;
