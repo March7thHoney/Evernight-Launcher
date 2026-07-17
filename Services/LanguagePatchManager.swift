@@ -17,8 +17,10 @@ struct LanguagePatchManager {
         LanguageOption(code: "kr", displayName: "Korean"),
     ]
 
-    // NameHash of the HSR language table inside the design index (version-specific).
-    private static let languageTableHash: Int32 = -515329346
+    private static let languageTableHashes: [UInt32: UInt64] = [
+        3: 0xe148b2be,
+        4: 0xb804dbc76d81fb75,
+    ]
 
     private static func assetFolder(_ installDirectory: String) -> String {
         installDirectory + "/StarRail_Data/StreamingAssets/DesignData/Windows"
@@ -87,7 +89,7 @@ struct LanguagePatchManager {
         var r = ByteReader(Array(all[start..<end]))
         _ = try r.u8()                       // leading version byte
         let count = try r.zigzagVarint()
-        guard count >= 0 else { throw LanguagePatchError.unexpectedEOF }
+        guard count >= 0, count <= 1024 else { throw LanguagePatchError.unexpectedEOF }
 
         var rows: [LanguageRow] = []
         rows.reserveCapacity(count)
@@ -98,7 +100,7 @@ struct LanguagePatchManager {
             if bitmask & (1 << 1) != 0 { row.type = try r.u8() }
             if bitmask & (1 << 2) != 0 {
                 let n = try r.zigzagVarint()
-                guard n >= 0 else { throw LanguagePatchError.unexpectedEOF }
+                guard n >= 0, n <= 64 else { throw LanguagePatchError.unexpectedEOF }
                 var arr: [String] = []
                 for _ in 0..<n { arr.append(try r.lenString()) }
                 row.languageList = arr
@@ -134,13 +136,12 @@ struct LanguagePatchManager {
     // MARK: - Design index (asset-meta) parse
 
     private struct DataEntry {
-        let nameHash: Int32
+        let nameHash: UInt64
         let size: UInt32
         let offset: UInt32
     }
 
     private struct FileEntry {
-        let nameHash: Int32
         let fileByteName: String
         let dataEntries: [DataEntry]
     }
@@ -152,11 +153,18 @@ struct LanguagePatchManager {
             throw LanguagePatchError.fileNotFound(path)
         }
         var r = ByteReader(Array(data))
-        _ = try r.i64BE()                    // UnkI64
-        let fileCount = try r.i32BE()
-        _ = try r.i32BE()                    // DesignDataCount
+        let magic = try r.u32BE()
+        let version = try r.u32BE()
+        let fileCount = try r.u32BE()
+        let dataCount = try r.u32BE()
+        guard magic == 0xff, fileCount <= 4096, dataCount <= 4_000_000 else {
+            throw LanguagePatchError.unexpectedEOF
+        }
+        guard let languageTableHash = languageTableHashes[version] else {
+            throw LanguagePatchError.unsupportedIndexVersion(version)
+        }
         for _ in 0..<Int(fileCount) {
-            let fileEntry = try readFileEntry(&r)
+            let fileEntry = try readFileEntry(&r, indexVersion: version, maxDataCount: dataCount)
             for entry in fileEntry.dataEntries where entry.nameHash == languageTableHash {
                 return (entry, fileEntry)
             }
@@ -164,15 +172,20 @@ struct LanguagePatchManager {
         throw LanguagePatchError.languageTableNotFound
     }
 
-    private static func readFileEntry(_ r: inout ByteReader) throws -> FileEntry {
-        let nameHash = try r.i32BE()
+    private static func readFileEntry(
+        _ r: inout ByteReader,
+        indexVersion: UInt32,
+        maxDataCount: UInt32
+    ) throws -> FileEntry {
+        _ = try r.nameHash(indexVersion: indexVersion)
         let fileByteName = try r.bytesN(16).map { String(format: "%02x", $0) }.joined()
         _ = try r.u64BE()                    // Size
         let dataCount = try r.u32BE()
+        guard dataCount <= maxDataCount else { throw LanguagePatchError.unexpectedEOF }
         var entries: [DataEntry] = []
         entries.reserveCapacity(Int(dataCount))
         for _ in 0..<Int(dataCount) {
-            let nh = try r.i32BE()
+            let nh = try r.nameHash(indexVersion: indexVersion)
             let sz = try r.u32BE()
             let off = try r.u32BE()
             entries.append(DataEntry(nameHash: nh, size: sz, offset: off))
@@ -180,7 +193,7 @@ struct LanguagePatchManager {
         let subLen = try r.u16BE()
         if subLen > 0 { _ = try r.bytesN(Int(subLen)) }   // SubPath
         _ = try r.u8()                       // marker
-        return FileEntry(nameHash: nameHash, fileByteName: fileByteName, dataEntries: entries)
+        return FileEntry(fileByteName: fileByteName, dataEntries: entries)
     }
 
     // M_DesignV.bytes holds the index hash at 0x1C as four little-endian 32-bit words.
@@ -232,8 +245,6 @@ struct LanguagePatchManager {
             return (UInt32(b[0]) << 24) | (UInt32(b[1]) << 16) | (UInt32(b[2]) << 8) | UInt32(b[3])
         }
 
-        mutating func i32BE() throws -> Int32 { Int32(bitPattern: try u32BE()) }
-
         mutating func u64BE() throws -> UInt64 {
             let b = try bytesN(8)
             var v: UInt64 = 0
@@ -241,7 +252,9 @@ struct LanguagePatchManager {
             return v
         }
 
-        mutating func i64BE() throws -> Int64 { Int64(bitPattern: try u64BE()) }
+        mutating func nameHash(indexVersion: UInt32) throws -> UInt64 {
+            indexVersion >= 4 ? try u64BE() : UInt64(try u32BE())
+        }
 
         mutating func lenString() throws -> String {
             let n = Int(try u8())
@@ -301,6 +314,7 @@ struct LanguagePatchManager {
 enum LanguagePatchError: LocalizedError {
     case fileNotFound(String)
     case languageTableNotFound
+    case unsupportedIndexVersion(UInt32)
     case unexpectedEOF
     case dataTooLarge
 
@@ -310,6 +324,8 @@ enum LanguagePatchError: LocalizedError {
             return "Game asset not found: \((p as NSString).lastPathComponent). Install the game first."
         case .languageTableNotFound:
             return "Language table not found (incompatible game version?)."
+        case .unsupportedIndexVersion(let version):
+            return "Unsupported game asset index version: \(version)."
         case .unexpectedEOF:
             return "Game asset is incomplete or corrupted."
         case .dataTooLarge:
