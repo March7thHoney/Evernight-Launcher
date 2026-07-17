@@ -375,7 +375,8 @@ struct GameSettingsContent: View {
                                 Button("Repair Files") { showRepairConfirmation = true }
                                     .buttonStyle(.bordered)
                                     .disabled(gameManager.officialClientManager.integrityIssues.isEmpty
-                                              || gameManager.officialClientManager.isRunning)
+                                              || gameManager.officialClientManager.isRunning
+                                              || isBetaInstalledClient)
                                 Spacer()
                             }
                         }
@@ -600,6 +601,11 @@ struct GameSettingsContent: View {
             ?? gameManager.settings.config(for: gameType).installedVersion
     }
 
+    private var isBetaInstalledClient: Bool {
+        guard let version = installedClientVersion else { return false }
+        return GameVersionDetector.isBetaVersion(version)
+    }
+
     private func requestOfficialUpdate() {
         if let version = installedClientVersion, GameVersionDetector.isBetaVersion(version) {
             showBetaOfficialUpdateWarning = true
@@ -656,6 +662,7 @@ struct GameSettingsContent: View {
     }
 
     private func repairOfficialFiles() {
+        guard !isBetaInstalledClient else { return }
         guard let directory = gameDirectory else { return }
         let region = gameManager.settings.config(for: gameType).officialRegion
         Task {
