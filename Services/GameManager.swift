@@ -503,7 +503,8 @@ class GameManager {
             // Build one registry file so Wine imports launch settings once.
             var registryEntries: [RegistryManager.Entry] = []
 
-            let cursorReleaseEnabled = config.alwaysReleaseCursor || config.aggressiveCursorRelease
+            let cursorReleaseEnabled = config.alwaysReleaseCursor
+            let aggressiveCursorReleaseEnabled = cursorReleaseEnabled && config.aggressiveCursorRelease
             launchLog.info("[Phase 1] Preparing launch registry (retina=\(config.retinaMode), leftCmd=\(config.leftCommandIsCtrl), alwaysReleaseCursor=\(config.alwaysReleaseCursor), aggressiveCursorRelease=\(config.aggressiveCursorRelease))")
             registryEntries += RegistryManager.generateWinePropsRegistryEntries(
                 retinaMode: config.retinaMode,
@@ -734,9 +735,9 @@ class GameManager {
             if cursorReleaseEnabled {
                 try CursorReleaseInterposer.configure(
                     environment: &env,
-                    aggressive: config.aggressiveCursorRelease
+                    aggressive: aggressiveCursorReleaseEnabled
                 )
-                launchLog.info("[Phase 3] In-process cursor release enabled (aggressive=\(config.aggressiveCursorRelease))")
+                launchLog.info("[Phase 3] In-process cursor release enabled (aggressive=\(aggressiveCursorReleaseEnabled))")
             }
 
             // 3c. Setup logging
