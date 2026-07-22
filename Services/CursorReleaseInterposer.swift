@@ -1,7 +1,7 @@
 import Foundation
 
 enum CursorReleaseInterposer {
-    static func configure(environment: inout [String: String]) throws {
+    static func configure(environment: inout [String: String], aggressive: Bool) throws {
         guard let interposerURL = Bundle.main.url(
             forResource: "evernight-cursor-release",
             withExtension: "bin"
@@ -16,6 +16,9 @@ enum CursorReleaseInterposer {
             libraries.append(interposerURL.path)
         }
         environment["DYLD_INSERT_LIBRARIES"] = libraries.joined(separator: ":")
+        if aggressive {
+            environment["EVERNIGHT_CURSOR_RELEASE_AGGRESSIVE"] = "1"
+        }
     }
 }
 

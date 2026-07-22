@@ -557,7 +557,11 @@ struct GameSettingsContent: View {
                         Toggle("WINEMSYNC", isOn: configBinding(\.winemsync))
                         Toggle("Steam Emulation", isOn: configBinding(\.useSteamPatch))
                         Toggle("ReShade", isOn: configBinding(\.enableReShade))
-                        Toggle("Always Release Cursor", isOn: configBinding(\.alwaysReleaseCursor))
+                        HStack(spacing: 24) {
+                            Toggle("Always Release Cursor", isOn: configBinding(\.alwaysReleaseCursor))
+                            Toggle("Aggressive", isOn: configBinding(\.aggressiveCursorRelease))
+                                .help("Keeps the macOS cursor visible and blocks mouse movement from rotating the in-game camera.")
+                        }
                         Toggle("Windows Mounted-Volume Compatibility (Experimental)", isOn: mountedVolumeCompatibilityBinding)
                             .help("Uses a short Wine drive path only for games on SMB or other network volumes.")
                     }
