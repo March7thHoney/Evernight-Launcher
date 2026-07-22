@@ -41,6 +41,7 @@ struct GameConfig: Codable, Equatable {
 
     // DXMT environment
     var winemsync: Bool = true          // WINEMSYNC=1
+    var alwaysReleaseCursor: Bool = false
 
     // Pre-download flag
     var predownloadedAll: Bool = false
@@ -92,7 +93,7 @@ struct GameConfig: Codable, Equatable {
         case customResolution, resolutionWidth, resolutionHeight
         case useMarch7thHoney, march7thHoneyAddress, march7thServerPreset, customProxyPath
         case useSteamPatch, enableReShade, workaround3
-        case winemsync
+        case winemsync, alwaysReleaseCursor
         case predownloadedAll
     }
 
@@ -123,6 +124,7 @@ struct GameConfig: Codable, Equatable {
         self.enableReShade = false
         self.workaround3 = false
         self.winemsync = true
+        self.alwaysReleaseCursor = false
         self.predownloadedAll = false
     }
 
@@ -159,6 +161,7 @@ struct GameConfig: Codable, Equatable {
         self.enableReShade = try container.decodeIfPresent(Bool.self, forKey: .enableReShade) ?? false
         self.workaround3 = try container.decodeIfPresent(Bool.self, forKey: .workaround3) ?? false
         self.winemsync = try container.decodeIfPresent(Bool.self, forKey: .winemsync) ?? true
+        self.alwaysReleaseCursor = try container.decodeIfPresent(Bool.self, forKey: .alwaysReleaseCursor) ?? false
         self.predownloadedAll = try container.decodeIfPresent(Bool.self, forKey: .predownloadedAll) ?? false
     }
 }

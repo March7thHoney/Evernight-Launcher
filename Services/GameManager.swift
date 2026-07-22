@@ -503,10 +503,11 @@ class GameManager {
             // Build one registry file so Wine imports launch settings once.
             var registryEntries: [RegistryManager.Entry] = []
 
-            launchLog.info("[Phase 1] Preparing launch registry (retina=\(config.retinaMode), leftCmd=\(config.leftCommandIsCtrl))")
+            launchLog.info("[Phase 1] Preparing launch registry (retina=\(config.retinaMode), leftCmd=\(config.leftCommandIsCtrl), alwaysReleaseCursor=\(config.alwaysReleaseCursor))")
             registryEntries += RegistryManager.generateWinePropsRegistryEntries(
                 retinaMode: config.retinaMode,
-                leftCommandIsCtrl: config.leftCommandIsCtrl
+                leftCommandIsCtrl: config.leftCommandIsCtrl,
+                alwaysReleaseCursor: config.alwaysReleaseCursor
             )
 
             registryEntries += RegistryManager.generateConsoleRegistryEntries()
@@ -727,6 +728,11 @@ class GameManager {
             // GStreamer (if not already set)
             if env["GST_PLUGIN_FEATURE_RANK"] == nil {
                 env["GST_PLUGIN_FEATURE_RANK"] = "atdec:MAX,avdec_h264:MAX"
+            }
+
+            if config.alwaysReleaseCursor {
+                try CursorReleaseInterposer.configure(environment: &env)
+                launchLog.info("[Phase 3] In-process cursor release enabled")
             }
 
             // 3c. Setup logging
