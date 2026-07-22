@@ -43,7 +43,11 @@ struct RegistryManager {
 
     // MARK: - Wine Launch Registry
 
-    static func generateWinePropsRegistryEntries(retinaMode: Bool, leftCommandIsCtrl: Bool) -> [Entry] {
+    static func generateWinePropsRegistryEntries(
+        retinaMode: Bool,
+        leftCommandIsCtrl: Bool,
+        alwaysReleaseCursor: Bool
+    ) -> [Entry] {
         [
             (
                 key: "HKEY_CURRENT_USER\\Software\\Wine\\Mac Driver",
@@ -51,6 +55,10 @@ struct RegistryManager {
                     ("RetinaMode", .string(retinaMode ? "y" : "n")),
                     ("LeftCommandIsCtrl", .string(leftCommandIsCtrl ? "y" : "n")),
                 ]
+            ),
+            (
+                key: "HKEY_CURRENT_USER\\Software\\Wine\\DirectInput",
+                values: [("MouseWarpOverride", .string(alwaysReleaseCursor ? "disable" : "enable"))]
             )
         ]
     }

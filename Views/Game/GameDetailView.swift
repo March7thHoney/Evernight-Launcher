@@ -557,6 +557,7 @@ struct GameSettingsContent: View {
                         Toggle("WINEMSYNC", isOn: configBinding(\.winemsync))
                         Toggle("Steam Emulation", isOn: configBinding(\.useSteamPatch))
                         Toggle("ReShade", isOn: configBinding(\.enableReShade))
+                        Toggle("Always Release Cursor", isOn: configBinding(\.alwaysReleaseCursor))
                         Toggle("Windows Mounted-Volume Compatibility (Experimental)", isOn: mountedVolumeCompatibilityBinding)
                             .help("Uses a short Wine drive path only for games on SMB or other network volumes.")
                     }
