@@ -2,6 +2,7 @@
 #import <CoreGraphics/CoreGraphics.h>
 #import <objc/runtime.h>
 #include <stdio.h>
+#include <stdlib.h>
 #include <unistd.h>
 
 #define DYLD_INTERPOSE(replacement, replacee) \
@@ -22,8 +23,10 @@ static CGError ignore_cursor_warp(CGPoint point) {
 }
 
 static void ignore_void(id self, SEL command) {}
+static void ignore_event(id self, SEL command, NSEvent *event) {}
 static void ignore_rect(id self, SEL command, CGRect rect) {}
 static BOOL ignore_point(id self, SEL command, CGPoint point) { return NO; }
+static void force_arrow_cursor(id self, SEL command, BOOL force) { [[NSCursor arrowCursor] set]; }
 
 static void replace_instance_method(Class target, const char *name, IMP replacement) {
     SEL selector = sel_registerName(name);
@@ -32,6 +35,7 @@ static void replace_instance_method(Class target, const char *name, IMP replacem
 }
 
 static void install_cursor_overrides(void) {
+    BOOL aggressive = getenv("EVERNIGHT_CURSOR_RELEASE_AGGRESSIVE") != NULL;
     Class cursor_meta = object_getClass(NSCursor.class);
     replace_instance_method(cursor_meta, "hide", (IMP)ignore_void);
 
@@ -46,7 +50,12 @@ static void install_cursor_overrides(void) {
             Class confinement = objc_lookUpClass("WineConfinementClipCursorHandler");
             if (event_tap) replace_instance_method(event_tap, "startClippingCursor:", (IMP)ignore_rect);
             if (confinement) replace_instance_method(confinement, "startClippingCursor:", (IMP)ignore_rect);
-            fprintf(stderr, "evernight-cursor-release: Wine cursor capture disabled\n");
+            if (aggressive) {
+                replace_instance_method(controller, "handleMouseMove:", (IMP)ignore_event);
+                replace_instance_method(controller, "updateCursor:", (IMP)force_arrow_cursor);
+                dispatch_async(dispatch_get_main_queue(), ^{ [[NSCursor arrowCursor] set]; });
+            }
+            fprintf(stderr, "evernight-cursor-release: Wine cursor capture disabled (aggressive=%d)\n", aggressive);
             return;
         }
         usleep(1000);

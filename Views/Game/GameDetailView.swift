@@ -557,7 +557,12 @@ struct GameSettingsContent: View {
                         Toggle("WINEMSYNC", isOn: configBinding(\.winemsync))
                         Toggle("Steam Emulation", isOn: configBinding(\.useSteamPatch))
                         Toggle("ReShade", isOn: configBinding(\.enableReShade))
-                        Toggle("Always Release Cursor", isOn: configBinding(\.alwaysReleaseCursor))
+                        Toggle("Always Release Cursor", isOn: alwaysReleaseCursorBinding)
+                        if gameManager.settings.config(for: gameType).alwaysReleaseCursor {
+                            Toggle("Aggressive Cursor Release (Suitable for Gamepad)", isOn: configBinding(\.aggressiveCursorRelease))
+                                .help("Keeps the macOS cursor visible and blocks mouse movement from rotating the in-game camera.")
+                                .padding(.leading, 32)
+                        }
                         Toggle("Windows Mounted-Volume Compatibility (Experimental)", isOn: mountedVolumeCompatibilityBinding)
                             .help("Uses a short Wine drive path only for games on SMB or other network volumes.")
                     }
@@ -768,6 +773,19 @@ struct GameSettingsContent: View {
             set: { newValue in
                 gameManager.settings.updateConfig(for: gameType) { config in
                     config[keyPath: keyPath] = newValue
+                }
+                gameManager.settings.save()
+            }
+        )
+    }
+
+    private var alwaysReleaseCursorBinding: Binding<Bool> {
+        Binding(
+            get: { gameManager.settings.config(for: gameType).alwaysReleaseCursor },
+            set: { newValue in
+                gameManager.settings.updateConfig(for: gameType) { config in
+                    config.alwaysReleaseCursor = newValue
+                    if !newValue { config.aggressiveCursorRelease = false }
                 }
                 gameManager.settings.save()
             }
