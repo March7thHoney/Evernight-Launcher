@@ -717,8 +717,13 @@ class GameManager {
 
             // Proxy
             if isProxyEnabled {
-                env["HTTP_PROXY"] = "127.0.0.1:\(freePort)"
-                env["HTTPS_PROXY"] = "127.0.0.1:\(freePort)"
+                let proxyURL = "http://127.0.0.1:\(freePort)"
+                for key in ["HTTP_PROXY", "HTTPS_PROXY", "http_proxy", "https_proxy"] {
+                    env[key] = proxyURL
+                }
+                for key in ["NO_PROXY", "no_proxy"] {
+                    env[key] = "localhost,127.0.0.1,::1"
+                }
             }
 
             // March7thHoney: tell the injected patch which server to use (webview redirect) and route its in-process WinHTTP through firefly so any server (local or online) works.
