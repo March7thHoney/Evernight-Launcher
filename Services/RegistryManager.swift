@@ -206,7 +206,7 @@ struct RegistryManager {
         if enable && !proxyHost.isEmpty {
             values.append(("ProxyEnable", .dword(1)))
             values.append(("ProxyServer", .string(proxyHost)))
-            values.append(("ProxyOverride", .string("<local>")))
+            values.append(("ProxyOverride", .string("<local>;localhost;127.0.0.1;wpad")))
         } else {
             values.append(("ProxyEnable", .dword(0)))
         }
