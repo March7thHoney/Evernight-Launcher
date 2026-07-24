@@ -5,9 +5,10 @@ import SwiftUI
 @Observable
 class GameManager {
     var games: [GameType: GameInfo]
-    var gameStates: [GameType: GameState] = [:]
+    var gameStates: [GameType: [GameClientVersion: GameState]] = [:]
     var settings: LauncherSettings
     var selectedGame: GameType
+    var selectedClientVersion: GameClientVersion
     var errorMessage: String?
     var showErrorAlert: Bool = false
 
@@ -28,12 +29,15 @@ class GameManager {
         self.selectedGame = GameType.displayed.contains(settings.selectedGame)
             ? settings.selectedGame
             : (GameType.displayed.first ?? .honkaiStarRail)
+        self.selectedClientVersion = settings.selectedClientVersion
 
         var gamesMap: [GameType: GameInfo] = [:]
-        var statesMap: [GameType: GameState] = [:]
+        var statesMap: [GameType: [GameClientVersion: GameState]] = [:]
         for info in GameInfo.defaultGames {
             gamesMap[info.type] = info
-            statesMap[info.type] = .notInstalled
+            statesMap[info.type] = Dictionary(
+                uniqueKeysWithValues: GameClientVersion.allCases.map { ($0, .notInstalled) }
+            )
         }
         self.games = gamesMap
         self.gameStates = statesMap
@@ -50,7 +54,7 @@ class GameManager {
     }
 
     var currentState: GameState {
-        gameStates[selectedGame] ?? .notInstalled
+        gameStates[selectedGame]?[selectedClientVersion] ?? .notInstalled
     }
 
     // MARK: - State Management
@@ -61,9 +65,29 @@ class GameManager {
         settings.save()
     }
 
+    func selectClientVersion(_ version: GameClientVersion) {
+        selectedClientVersion = version
+        settings.selectedClientVersion = version
+        settings.save()
+
+        let directory = settings.config(for: selectedGame).installDirectory(for: version)
+        officialClientManager.refreshInstalledInfo(directory: directory)
+        Task { await checkGameState(for: selectedGame, clientVersion: version) }
+    }
+
+    private func state(for type: GameType, clientVersion: GameClientVersion) -> GameState {
+        gameStates[type]?[clientVersion] ?? .notInstalled
+    }
+
     @MainActor
-    func reportError(_ message: String, for type: GameType) {
-        gameStates[type] = .error(message: message)
+    private func setState(_ state: GameState, for type: GameType, clientVersion: GameClientVersion) {
+        gameStates[type, default: [:]][clientVersion] = state
+    }
+
+    @MainActor
+    func reportError(_ message: String, for type: GameType, clientVersion: GameClientVersion? = nil) {
+        let version = clientVersion ?? selectedClientVersion
+        gameStates[type, default: [:]][version] = .error(message: message)
         self.errorMessage = message
         self.showErrorAlert = true
     }
@@ -206,43 +230,48 @@ class GameManager {
     func checkAllGameStates() async {
         let orderedTypes = [selectedGame] + GameType.displayed.filter { $0 != selectedGame }
         for type in orderedTypes {
-            let config = settings.config(for: type)
-            if let dir = config.installDirectory, isGamePresent(type, at: dir) {
-                await MainActor.run {
-                    gameStates[type] = .checkingForUpdates
-                }
+            for clientVersion in GameClientVersion.allCases {
+                await checkGameState(for: type, clientVersion: clientVersion)
+            }
+        }
+    }
 
-                // Detect installed version from Unity binary files
-                var detectedVersion = config.installedVersion
-                if detectedVersion == nil {
-                    detectedVersion = GameVersionDetector.detectInstalledVersion(
-                        gameType: type, installDir: dir
-                    )
-                    if let v = detectedVersion {
-                        settings.updateConfig(for: type) { config in
-                            config.installedVersion = v
-                        }
-                        settings.save()
+    private func checkGameState(for type: GameType, clientVersion: GameClientVersion) async {
+        let config = settings.config(for: type)
+        guard let dir = config.installDirectory(for: clientVersion), isGamePresent(type, at: dir) else {
+            setState(.notInstalled, for: type, clientVersion: clientVersion)
+            if type == selectedGame && clientVersion == selectedClientVersion {
+                await MainActor.run { officialClientManager.refreshInstalledInfo(directory: nil) }
+            }
+            return
+        }
+
+        setState(.checkingForUpdates, for: type, clientVersion: clientVersion)
+        var detectedVersion = config.installedVersion(for: clientVersion)
+        if detectedVersion == nil {
+            detectedVersion = GameVersionDetector.detectInstalledVersion(gameType: type, installDir: dir)
+            if let detectedVersion {
+                await MainActor.run {
+                    settings.updateConfig(for: type) {
+                        $0.setInstalledVersion(detectedVersion, for: clientVersion)
                     }
-                }
-
-                if type == .honkaiStarRail,
-                   let region = OfficialGameClientManager.detectRegion(at: dir) {
-                    settings.updateConfig(for: type) { $0.officialRegion = region }
                     settings.save()
-                }
-                officialClientManager.refreshInstalledInfo(directory: dir)
-
-                // Always allow running the installed version; skip update checks.
-                await MainActor.run {
-                    gameStates[type] = .ready
-                }
-            } else {
-                await MainActor.run {
-                    gameStates[type] = .notInstalled
                 }
             }
         }
+
+        if clientVersion == .official,
+           type == .honkaiStarRail,
+           let region = OfficialGameClientManager.detectRegion(at: dir) {
+            await MainActor.run {
+                settings.updateConfig(for: type) { $0.officialRegion = region }
+                settings.save()
+            }
+        }
+        if type == selectedGame && clientVersion == selectedClientVersion {
+            await MainActor.run { officialClientManager.refreshInstalledInfo(directory: dir) }
+        }
+        setState(.ready, for: type, clientVersion: clientVersion)
     }
 
     private func isGamePresent(_ type: GameType, at dir: String) -> Bool {
@@ -254,6 +283,7 @@ class GameManager {
     // MARK: - Locate Existing Game
 
     func locateGame(_ type: GameType) async {
+        let clientVersion = selectedClientVersion
         guard let url = await selectInstallDirectory(for: type) else { return }
         let dir = url.path
         let present = isGamePresent(type, at: dir)
@@ -262,13 +292,15 @@ class GameManager {
 
         await MainActor.run {
             settings.updateConfig(for: type) { config in
-                config.installDirectory = dir
-                config.installedVersion = version
-                if let region { config.officialRegion = region }
+                config.setInstallDirectory(dir, for: clientVersion)
+                config.setInstalledVersion(version, for: clientVersion)
+                if clientVersion == .official, let region { config.officialRegion = region }
             }
             settings.save()
-            gameStates[type] = present ? .ready : .notInstalled
-            officialClientManager.refreshInstalledInfo(directory: present ? dir : nil)
+            gameStates[type, default: [:]][clientVersion] = present ? .ready : .notInstalled
+            if clientVersion == selectedClientVersion {
+                officialClientManager.refreshInstalledInfo(directory: present ? dir : nil)
+            }
         }
     }
 
@@ -290,24 +322,29 @@ class GameManager {
     // MARK: - Actions
 
     func performAction(for type: GameType) async {
-        let state = gameStates[type] ?? .notInstalled
-        switch state {
+        let clientVersion = selectedClientVersion
+        let actionState = state(for: type, clientVersion: clientVersion)
+        switch actionState {
         case .notInstalled:
-            await installGame(type)
+            guard clientVersion == .official else { return }
+            await installGame(type, clientVersion: clientVersion)
         case .ready:
-            await launchGame(type)
+            await launchGame(type, clientVersion: clientVersion)
         case .needsUpdate:
-            await updateGame(type)
+            guard clientVersion == .official else { return }
+            await updateGame(type, clientVersion: clientVersion)
         case .error:
-            await checkAllGameStates()
-            let newState = gameStates[type] ?? .notInstalled
+            await checkGameState(for: type, clientVersion: clientVersion)
+            let newState = state(for: type, clientVersion: clientVersion)
             switch newState {
             case .notInstalled:
-                await installGame(type)
+                guard clientVersion == .official else { return }
+                await installGame(type, clientVersion: clientVersion)
             case .ready:
-                await launchGame(type)
+                await launchGame(type, clientVersion: clientVersion)
             case .needsUpdate:
-                await updateGame(type)
+                guard clientVersion == .official else { return }
+                await updateGame(type, clientVersion: clientVersion)
             default:
                 break
             }
@@ -331,65 +368,91 @@ class GameManager {
 
     // MARK: - Install Game
 
-    func installGame(_ type: GameType) async {
+    func installGame(_ type: GameType, clientVersion requestedVersion: GameClientVersion? = nil) async {
+        let clientVersion = requestedVersion ?? selectedClientVersion
+        guard clientVersion == .official else { return }
         var config = settings.config(for: type)
-        if config.installDirectory == nil {
+        if config.installDirectory(for: clientVersion) == nil {
             guard let installURL = await selectInstallDirectory(for: type) else { return }
-            config.installDirectory = installURL.path
+            if FileManager.default.fileExists(atPath: installURL.path + "/StarRail.exe") {
+                await MainActor.run {
+                    reportError(
+                        "StarRail.exe already exists in the selected directory. Please select a new directory to prevent accidentally overwriting an existing game installation.",
+                        for: type,
+                        clientVersion: clientVersion
+                    )
+                }
+                return
+            }
+            config.setInstallDirectory(installURL.path, for: clientVersion)
             await MainActor.run {
-                settings.updateConfig(for: type) { $0.installDirectory = installURL.path }
+                settings.updateConfig(for: type) { $0.setInstallDirectory(installURL.path, for: clientVersion) }
                 settings.save()
             }
         }
-        guard let directory = config.installDirectory else { return }
+        guard let directory = config.installDirectory(for: clientVersion) else { return }
+        if FileManager.default.fileExists(atPath: directory + "/StarRail.exe") {
+            await MainActor.run {
+                reportError(
+                    "StarRail.exe already exists in the selected directory. Please select a new directory to prevent accidentally overwriting an existing game installation.",
+                    for: type,
+                    clientVersion: clientVersion
+                )
+            }
+            return
+        }
 
-        await MainActor.run { gameStates[type] = .installing(progress: 0, status: "Preparing download...") }
+        setState(.installing(progress: 0, status: "Preparing download..."), for: type, clientVersion: clientVersion)
         do {
             let version = try await officialClientManager.downloadGame(
                 to: directory,
                 region: config.officialRegion,
                 onProgress: { [weak self] progress, status in
                     Task { @MainActor in
-                        self?.gameStates[type] = .installing(progress: progress, status: status)
+                        self?.gameStates[type, default: [:]][clientVersion] = .installing(progress: progress, status: status)
                     }
                 }
             )
             await MainActor.run {
-                settings.updateConfig(for: type) { $0.installedVersion = version }
+                settings.updateConfig(for: type) { $0.setInstalledVersion(version, for: clientVersion) }
                 settings.save()
-                gameStates[type] = .ready
+                gameStates[type, default: [:]][clientVersion] = .ready
             }
         } catch {
-            await MainActor.run { reportError(error.localizedDescription, for: type) }
+            await MainActor.run { reportError(error.localizedDescription, for: type, clientVersion: clientVersion) }
         }
     }
 
     // MARK: - Update Game
 
-    func updateGame(_ type: GameType) async {
+    func updateGame(_ type: GameType, clientVersion requestedVersion: GameClientVersion? = nil) async {
+        let clientVersion = requestedVersion ?? selectedClientVersion
+        guard clientVersion == .official else { return }
         let config = settings.config(for: type)
-        guard let directory = config.installDirectory else { return }
+        guard let directory = config.installDirectory(for: clientVersion) else { return }
         do {
             let version = try await officialClientManager.updateGame(
                 directory: directory,
                 region: config.officialRegion
             )
             await MainActor.run {
-                settings.updateConfig(for: type) { $0.installedVersion = version }
+                settings.updateConfig(for: type) { $0.setInstalledVersion(version, for: clientVersion) }
                 settings.save()
-                gameStates[type] = .ready
+                gameStates[type, default: [:]][clientVersion] = .ready
             }
         } catch {
-            await MainActor.run { reportError(error.localizedDescription, for: type) }
+            await MainActor.run { reportError(error.localizedDescription, for: type, clientVersion: clientVersion) }
         }
     }
 
     // MARK: - Full 4-Phase Game Launch
 
-    func launchGame(_ type: GameType) async {
-        let config = settings.config(for: type)
-        guard let installDir = config.installDirectory else {
-            await MainActor.run { reportError("Game not installed", for: type) }
+    func launchGame(_ type: GameType, clientVersion requestedVersion: GameClientVersion? = nil) async {
+        let clientVersion = requestedVersion ?? selectedClientVersion
+        var config = settings.config(for: type)
+        config.useMarch7thHoney = config.useMarch7thHoney(for: clientVersion)
+        guard let installDir = config.installDirectory(for: clientVersion) else {
+            await MainActor.run { reportError("Game not installed", for: type, clientVersion: clientVersion) }
             return
         }
 
@@ -402,7 +465,7 @@ class GameManager {
             }
         }
 
-        await MainActor.run { gameStates[type] = .launching }
+        setState(.launching, for: type, clientVersion: clientVersion)
 
         var freePort = 8080
         var proxyCertPath: String?
@@ -657,7 +720,8 @@ class GameManager {
             let batchScript = generateLaunchBatch(
                 wineGameDir: wineGameDir,
                 executable: type.executable,
-                type: type
+                type: type,
+                clientVersion: clientVersion
             )
             batchPath = WineManager.basePath + "/config.bat"
             try batchScript.write(toFile: batchPath!, atomically: true, encoding: .utf8)
@@ -811,7 +875,9 @@ class GameManager {
 
             // Wait for game to exit — non-blocking, UI remains responsive
             let exitCode = try await ProcessRunner.run(process) { p in
-                Task { @MainActor in self.gameStates[type] = .running }
+                Task { @MainActor in
+                    self.gameStates[type, default: [:]][clientVersion] = .running
+                }
                 launchLog.info("[Phase 3] Game process started (PID: \(p.processIdentifier))")
             }
             
@@ -892,7 +958,7 @@ class GameManager {
             }
             launchLog.info("[Phase 4] Cleanup complete")
             launchLog.info("════════════════════════════════════════")
-            await MainActor.run { gameStates[type] = .ready }
+            setState(.ready, for: type, clientVersion: clientVersion)
         } catch {
             print("[LaunchGame] ❌ ERROR: \(error.localizedDescription)")
 
@@ -944,7 +1010,7 @@ class GameManager {
             }
             
             await MainActor.run {
-                reportError(error.localizedDescription, for: type)
+                reportError(error.localizedDescription, for: type, clientVersion: clientVersion)
             }
         }
     }
@@ -963,12 +1029,17 @@ class GameManager {
 
     /// Generate batch script matching target format.
     /// Uses JS template literals which produce \n line endings — Wine's cmd.exe handles both.
-    private func generateLaunchBatch(wineGameDir: String, executable: String, type: GameType) -> String {
+    private func generateLaunchBatch(
+        wineGameDir: String,
+        executable: String,
+        type: GameType,
+        clientVersion: GameClientVersion
+    ) -> String {
         let winGameDir = wineGameDir
         let config = settings.config(for: type)
 
         if JadeiteManager.requiresJadeite(for: type) {
-            if config.useMarch7thHoney {
+            if config.useMarch7thHoney(for: clientVersion) {
                 // March7thHoney: HSRLauncher launches the configured game suspended and injects game_payload.dll (mhypbase bypass under Wine) + CyreneHook.dll (rewrites login webview to private server) before resuming — early enough to catch the first login webview load.
                 let winExePath = winePath(in: winGameDir, relativePath: executable)
                 let winHSRLauncher = wineManager.toWinePath(WineManager.basePath + "/hsrpatch/HSRLauncher.exe")
