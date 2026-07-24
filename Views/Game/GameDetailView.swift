@@ -10,6 +10,7 @@ struct GameDetailView: View {
     private var game: GameInfo { gameManager.currentGame }
     private var state: GameState { gameManager.currentState }
     private var type: GameType { gameManager.selectedGame }
+    private var clientVersion: GameClientVersion { gameManager.selectedClientVersion }
 
     var body: some View {
         ZStack {
@@ -131,6 +132,13 @@ struct GameDetailView: View {
 
     private var bottomBar: some View {
         HStack(spacing: 16) {
+            settingsButton
+
+            Toggle("Play on March7thHoney", isOn: march7thHoneyBinding)
+                .toggleStyle(.checkbox)
+                .font(.system(size: 13, weight: .medium))
+                .foregroundStyle(.white)
+
             if let progress = state.progress {
                 VStack(alignment: .leading, spacing: 6) {
                     Text(state.statusText ?? "")
@@ -146,7 +154,7 @@ struct GameDetailView: View {
 
             Spacer()
 
-            settingsButton
+            clientVersionMenu
 
             // Locate existing game button (always visible so the game directory can be re-pointed anytime)
             Button {
@@ -168,6 +176,54 @@ struct GameDetailView: View {
         .padding(.horizontal, 22)
         .padding(.vertical, 14)
         .liquidGlassCard(cornerRadius: 18)
+    }
+
+    private var march7thHoneyBinding: Binding<Bool> {
+        Binding(
+            get: { gameManager.settings.config(for: type).useMarch7thHoney(for: clientVersion) },
+            set: { newValue in
+                gameManager.settings.updateConfig(for: type) {
+                    $0.setUseMarch7thHoney(newValue, for: clientVersion)
+                }
+                gameManager.settings.save()
+            }
+        )
+    }
+
+    private var clientVersionMenu: some View {
+        Menu {
+            ForEach(GameClientVersion.allCases) { version in
+                Button {
+                    gameManager.selectClientVersion(version)
+                } label: {
+                    if version == clientVersion {
+                        Label(version.displayName, systemImage: "checkmark")
+                    } else {
+                        Text(version.displayName)
+                    }
+                }
+            }
+        } label: {
+            Label(clientVersion.displayName, systemImage: "chevron.up.chevron.down")
+                .font(.system(size: 13, weight: .medium))
+                .foregroundStyle(.white)
+                .padding(.horizontal, 8)
+                .padding(.vertical, 4)
+        }
+        .menuIndicator(.hidden)
+        .buttonStyle(.plain)
+        .padding(.horizontal, 14)
+        .padding(.vertical, 8)
+        .liquidGlassButton(color: .white)
+        .disabled(isClientVersionSwitchDisabled)
+        .help("Select Game Version")
+    }
+
+    private var isClientVersionSwitchDisabled: Bool {
+        state.isBusy
+            || state == .running
+            || gameManager.officialClientManager.isRunning
+            || gameManager.gameClientUpdateManager.isRunning
     }
 
     private var settingsButton: some View {
@@ -214,19 +270,21 @@ struct GameDetailView: View {
         .padding(.horizontal, 12)
         .padding(.vertical, 6)
         .liquidGlassButton(color: type.accentColor)
-        .disabled(!state.isActionable)
-        .opacity(state.isActionable ? 1.0 : 0.5)
+        .disabled(!isLaunchActionable)
+        .opacity(isLaunchActionable ? 1.0 : 0.5)
+    }
+
+    private var isLaunchActionable: Bool {
+        state.isActionable && !(clientVersion == .beta && state == .notInstalled)
     }
 
     private var launchButtonLabel: String {
-        if state == .ready {
-            let config = gameManager.settings.config(for: type)
-            if config.useMarch7thHoney { return "Launch March7thHoney" }
-        }
+        if clientVersion == .beta && state == .notInstalled { return "Launch" }
         return state.actionLabel
     }
 
     private var launchButtonIcon: String {
+        if clientVersion == .beta && state == .notInstalled { return "play.fill" }
         switch state {
         case .notInstalled: return "arrow.down.to.line"
         case .ready: return "play.fill"
@@ -251,23 +309,23 @@ struct GameSettingsContent: View {
     @State private var updateStatus: String?
     @State private var updateStatusIsError = false
     @State private var showRepairConfirmation = false
-    @State private var showBetaOfficialUpdateWarning = false
-    @State private var showProductionManualPatchWarning = false
+
+    private var clientVersion: GameClientVersion { gameManager.selectedClientVersion }
 
     var body: some View {
         VStack(alignment: .leading, spacing: 20) {
                     settingsGroup("Network") {
                         Toggle("Play on March7thHoney", isOn: Binding(
-                            get: { gameManager.settings.config(for: gameType).useMarch7thHoney },
+                            get: { gameManager.settings.config(for: gameType).useMarch7thHoney(for: clientVersion) },
                             set: { newValue in
                                 gameManager.settings.updateConfig(for: gameType) { config in
-                                    config.useMarch7thHoney = newValue
+                                    config.setUseMarch7thHoney(newValue, for: clientVersion)
                                 }
                                 gameManager.settings.save()
                             }
                         ))
 
-                        if gameManager.settings.config(for: gameType).useMarch7thHoney {
+                        if gameManager.settings.config(for: gameType).useMarch7thHoney(for: clientVersion) {
                             Picker("Server", selection: configBinding(\.march7thServerPreset)) {
                                 ForEach(GameConfig.March7thServerPreset.allCases) { preset in
                                     Text(preset.displayName).tag(preset)
@@ -299,7 +357,7 @@ struct GameSettingsContent: View {
                             Button("Apply") { applyTextLanguage() }
                                 .buttonStyle(.borderedProminent)
                                 .controlSize(.small)
-                                .disabled(gameManager.settings.config(for: gameType).installDirectory == nil)
+                                .disabled(gameDirectory == nil)
                             Spacer()
                             if let msg = langStatus {
                                 Text(msg)
@@ -327,124 +385,126 @@ struct GameSettingsContent: View {
                                 .frame(maxWidth: 280, alignment: .trailing)
                         }
 
-                        Picker("Official Region", selection: configBinding(\.officialRegion)) {
-                            ForEach(OfficialGameRegion.allCases) { region in
-                                Text(region.displayName).tag(region)
-                            }
-                        }
-                        .disabled(hasInstalledClient)
-
                         HStack {
                             Text("Installed Version")
                             Spacer()
-                            Text(gameManager.officialClientManager.installedVersion ?? "Not installed")
+                            Text(installedClientVersion ?? "Not installed")
                                 .foregroundStyle(.secondary)
                         }
 
-                        HStack {
-                            Text("Latest Official Version")
-                            Spacer()
-                            Text(gameManager.officialClientManager.latestVersion ?? "Not checked")
-                                .foregroundStyle(.secondary)
-                        }
-
-                        HStack {
-                            if hasInstalledClient {
-                                Button("Check for Updates") { checkOfficialUpdate() }
-                                    .buttonStyle(.bordered)
-                                    .disabled(gameManager.officialClientManager.isRunning)
-                                Button("Update") { requestOfficialUpdate() }
-                                    .buttonStyle(.borderedProminent)
-                                    .disabled(!gameManager.officialClientManager.updateAvailable
-                                              || gameManager.officialClientManager.isRunning)
-                            } else {
-                                Button("Download Game") {
-                                    Task { await gameManager.installGame(gameType) }
+                        if clientVersion == .official {
+                            Picker("Official Region", selection: configBinding(\.officialRegion)) {
+                                ForEach(OfficialGameRegion.allCases) { region in
+                                    Text(region.displayName).tag(region)
                                 }
-                                .buttonStyle(.borderedProminent)
-                                .disabled(gameManager.officialClientManager.isRunning)
                             }
-                            Spacer()
-                        }
+                            .disabled(hasInstalledClient)
 
-                        if hasInstalledClient {
                             HStack {
-                                Button("Quick Verify") { verifyOfficialFiles() }
-                                    .buttonStyle(.bordered)
+                                Text("Latest Official Version")
+                                Spacer()
+                                Text(gameManager.officialClientManager.latestVersion ?? "Not checked")
+                                    .foregroundStyle(.secondary)
+                            }
+
+                            HStack {
+                                if hasInstalledClient {
+                                    Button("Check for Updates") { checkOfficialUpdate() }
+                                        .buttonStyle(.bordered)
+                                        .disabled(gameManager.officialClientManager.isRunning)
+                                    Button("Update") { updateOfficialClient() }
+                                        .buttonStyle(.borderedProminent)
+                                        .disabled(!gameManager.officialClientManager.updateAvailable
+                                                  || gameManager.officialClientManager.isRunning)
+                                } else {
+                                    Button("Download Game") {
+                                        Task { await gameManager.installGame(gameType, clientVersion: .official) }
+                                    }
+                                    .buttonStyle(.borderedProminent)
                                     .disabled(gameManager.officialClientManager.isRunning)
-                                Button("Repair Files") { showRepairConfirmation = true }
-                                    .buttonStyle(.bordered)
-                                    .disabled(gameManager.officialClientManager.integrityIssues.isEmpty
-                                              || gameManager.officialClientManager.isRunning
-                                              || isBetaInstalledClient)
+                                }
                                 Spacer()
                             }
+
+                            if hasInstalledClient {
+                                HStack {
+                                    Button("Quick Verify") { verifyOfficialFiles() }
+                                        .buttonStyle(.bordered)
+                                        .disabled(gameManager.officialClientManager.isRunning)
+                                    Button("Repair Files") { showRepairConfirmation = true }
+                                        .buttonStyle(.bordered)
+                                        .disabled(gameManager.officialClientManager.integrityIssues.isEmpty
+                                                  || gameManager.officialClientManager.isRunning)
+                                    Spacer()
+                                }
+                            }
+
+                            if gameManager.officialClientManager.isRunning {
+                                ProgressView(value: gameManager.officialClientManager.progress)
+                                    .progressViewStyle(.linear)
+                                Text(gameManager.officialClientManager.stage)
+                                    .font(.caption)
+                                    .foregroundStyle(.secondary)
+                                    .lineLimit(1)
+                                    .truncationMode(.middle)
+                            }
+
+                            if !gameManager.officialClientManager.statusMessage.isEmpty {
+                                Text(gameManager.officialClientManager.statusMessage)
+                                    .font(.caption)
+                                    .foregroundStyle(.secondary)
+                                    .textSelection(.enabled)
+                            }
                         }
 
-                        if gameManager.officialClientManager.isRunning {
-                            ProgressView(value: gameManager.officialClientManager.progress)
-                                .progressViewStyle(.linear)
-                            Text(gameManager.officialClientManager.stage)
-                                .font(.caption)
+                        if clientVersion == .beta {
+                            Divider().opacity(0.5)
+                            Text("Manual Patch")
+                                .font(.caption.weight(.semibold))
                                 .foregroundStyle(.secondary)
-                                .lineLimit(1)
-                                .truncationMode(.middle)
-                        }
 
-                        if !gameManager.officialClientManager.statusMessage.isEmpty {
-                            Text(gameManager.officialClientManager.statusMessage)
-                                .font(.caption)
-                                .foregroundStyle(.secondary)
-                                .textSelection(.enabled)
-                        }
+                            HStack {
+                                Button("Select Patch File…") { selectPatchFile() }
+                                    .buttonStyle(.bordered)
+                                    .controlSize(.small)
+                                    .disabled(gameManager.gameClientUpdateManager.isRunning)
+                                Spacer()
+                                if let url = patchFileURL {
+                                    Text(url.lastPathComponent)
+                                        .font(.caption.monospaced())
+                                        .foregroundStyle(.secondary)
+                                        .lineLimit(1)
+                                        .truncationMode(.middle)
+                                }
+                            }
 
-                        Divider().opacity(0.5)
-                        Text("Manual Patch")
-                            .font(.caption.weight(.semibold))
-                            .foregroundStyle(.secondary)
+                            HStack {
+                                Button("Update") { applyClientUpdate() }
+                                    .buttonStyle(.borderedProminent)
+                                    .controlSize(.small)
+                                    .disabled(gameDirectory == nil
+                                              || patchFileURL == nil
+                                              || gameManager.gameClientUpdateManager.isRunning)
+                                Spacer()
+                                if let msg = updateStatus {
+                                    Text(msg)
+                                        .font(.caption)
+                                        .foregroundStyle(updateStatusIsError ? .yellow : .green)
+                                        .lineLimit(1)
+                                        .truncationMode(.middle)
+                                }
+                            }
 
-                        HStack {
-                            Button("Select Patch File…") { selectPatchFile() }
-                                .buttonStyle(.bordered)
-                                .controlSize(.small)
-                                .disabled(gameManager.gameClientUpdateManager.isRunning)
-                            Spacer()
-                            if let url = patchFileURL {
-                                Text(url.lastPathComponent)
-                                    .font(.caption.monospaced())
+                            if gameManager.gameClientUpdateManager.isRunning {
+                                ProgressView(value: gameManager.gameClientUpdateManager.progress)
+                                    .progressViewStyle(.linear)
+                                Text(gameManager.gameClientUpdateManager.stage.isEmpty ? "Working…" : gameManager.gameClientUpdateManager.stage)
+                                    .font(.caption)
                                     .foregroundStyle(.secondary)
                                     .lineLimit(1)
                                     .truncationMode(.middle)
                             }
                         }
-
-                        HStack {
-                            Button("Update") { requestManualPatchUpdate() }
-                                .buttonStyle(.borderedProminent)
-                                .controlSize(.small)
-                                .disabled(gameManager.settings.config(for: gameType).installDirectory == nil
-                                          || patchFileURL == nil
-                                          || gameManager.gameClientUpdateManager.isRunning)
-                            Spacer()
-                            if let msg = updateStatus {
-                                Text(msg)
-                                    .font(.caption)
-                                    .foregroundStyle(updateStatusIsError ? .yellow : .green)
-                                    .lineLimit(1)
-                                    .truncationMode(.middle)
-                            }
-                        }
-
-                        if gameManager.gameClientUpdateManager.isRunning {
-                            ProgressView(value: gameManager.gameClientUpdateManager.progress)
-                                .progressViewStyle(.linear)
-                            Text(gameManager.gameClientUpdateManager.stage.isEmpty ? "Working…" : gameManager.gameClientUpdateManager.stage)
-                                .font(.caption)
-                                .foregroundStyle(.secondary)
-                                .lineLimit(1)
-                                .truncationMode(.middle)
-                        }
-
                     }
 
                     settingsGroup("Wine") {
@@ -577,22 +637,10 @@ struct GameSettingsContent: View {
         } message: {
             Text("Damaged files will be replaced with official copies. This may undo Text Language or other resource modifications.")
         }
-        .alert("Update Beta Client from Official Source?", isPresented: $showBetaOfficialUpdateWarning) {
-            Button("Cancel", role: .cancel) {}
-            Button("Update Anyway") { updateOfficialClient() }
-        } message: {
-            Text("Version \(installedClientVersion ?? "unknown") is a Beta client. Official production updates may be incompatible and damage this client.")
-        }
-        .alert("Apply Manual Patch to Production Client?", isPresented: $showProductionManualPatchWarning) {
-            Button("Cancel", role: .cancel) {}
-            Button("Apply Anyway") { applyClientUpdate() }
-        } message: {
-            Text("Version \(installedClientVersion ?? "unknown") is a production client. A manually selected diff/hdiff archive may target a Beta or different version and damage this client.")
-        }
     }
 
     private var gameDirectory: String? {
-        gameManager.settings.config(for: gameType).installDirectory
+        gameManager.settings.config(for: gameType).installDirectory(for: clientVersion)
     }
 
     private var hasInstalledClient: Bool {
@@ -603,29 +651,7 @@ struct GameSettingsContent: View {
     }
 
     private var installedClientVersion: String? {
-        gameManager.officialClientManager.installedVersion
-            ?? gameManager.settings.config(for: gameType).installedVersion
-    }
-
-    private var isBetaInstalledClient: Bool {
-        guard let version = installedClientVersion else { return false }
-        return GameVersionDetector.isBetaVersion(version)
-    }
-
-    private func requestOfficialUpdate() {
-        if let version = installedClientVersion, GameVersionDetector.isBetaVersion(version) {
-            showBetaOfficialUpdateWarning = true
-        } else {
-            updateOfficialClient()
-        }
-    }
-
-    private func requestManualPatchUpdate() {
-        if let version = installedClientVersion, GameVersionDetector.isProductionVersion(version) {
-            showProductionManualPatchWarning = true
-        } else {
-            applyClientUpdate()
-        }
+        gameManager.settings.config(for: gameType).installedVersion(for: clientVersion)
     }
 
     private func checkOfficialUpdate() {
@@ -646,7 +672,9 @@ struct GameSettingsContent: View {
         Task {
             do {
                 let version = try await gameManager.officialClientManager.updateGame(directory: directory, region: region)
-                gameManager.settings.updateConfig(for: gameType) { $0.installedVersion = version }
+                gameManager.settings.updateConfig(for: gameType) {
+                    $0.setInstalledVersion(version, for: .official)
+                }
                 gameManager.settings.save()
                 await gameManager.checkAllGameStates()
             } catch {
@@ -668,7 +696,6 @@ struct GameSettingsContent: View {
     }
 
     private func repairOfficialFiles() {
-        guard !isBetaInstalledClient else { return }
         guard let directory = gameDirectory else { return }
         let region = gameManager.settings.config(for: gameType).officialRegion
         Task {
@@ -682,7 +709,7 @@ struct GameSettingsContent: View {
 
     // Best-effort: reflect the game's current text language in the picker.
     private func syncTextLanguageFromGame() {
-        guard let dir = gameManager.settings.config(for: gameType).installDirectory,
+        guard let dir = gameDirectory,
               let current = try? LanguagePatchManager.getTextLanguage(installDirectory: dir),
               current != gameManager.settings.config(for: gameType).textLanguage else { return }
         gameManager.settings.updateConfig(for: gameType) { $0.textLanguage = current }
@@ -691,7 +718,7 @@ struct GameSettingsContent: View {
 
     private func applyTextLanguage() {
         let config = gameManager.settings.config(for: gameType)
-        guard let dir = config.installDirectory else {
+        guard let dir = config.installDirectory(for: clientVersion) else {
             langStatus = "Install the game first."
             langStatusIsError = true
             return
@@ -723,7 +750,8 @@ struct GameSettingsContent: View {
     }
 
     private func applyClientUpdate() {
-        guard let dir = gameManager.settings.config(for: gameType).installDirectory else {
+        let targetVersion = clientVersion
+        guard let dir = gameManager.settings.config(for: gameType).installDirectory(for: targetVersion) else {
             updateStatus = "Install the game first."
             updateStatusIsError = true
             return
@@ -734,7 +762,9 @@ struct GameSettingsContent: View {
             do {
                 try await gameManager.gameClientUpdateManager.applyPatch(gameDir: dir, archivePath: patch.path)
                 if let version = GameVersionDetector.detectInstalledVersion(gameType: gameType, installDir: dir) {
-                    gameManager.settings.updateConfig(for: gameType) { $0.installedVersion = version }
+                    gameManager.settings.updateConfig(for: gameType) {
+                        $0.setInstalledVersion(version, for: targetVersion)
+                    }
                     gameManager.settings.save()
                 }
                 await gameManager.checkAllGameStates()

@@ -1,12 +1,28 @@
 import Foundation
 
+enum GameClientVersion: String, Codable, CaseIterable, Identifiable {
+    case official
+    case beta
+
+    var id: String { rawValue }
+
+    var displayName: String {
+        switch self {
+        case .official: return "Official Version"
+        case .beta: return "Beta Version"
+        }
+    }
+}
+
 // MARK: - Game Config (Config per game — full feature set)
 
 struct GameConfig: Codable, Equatable {
     var gameType: GameType
-    var installDirectory: String?
+    var officialInstallDirectory: String?
+    var betaInstallDirectory: String?
     var textLanguage: String = "en"
-    var installedVersion: String?
+    var officialInstalledVersion: String?
+    var betaInstalledVersion: String?
     var officialRegion: OfficialGameRegion = .mainlandChina
 
     // Wine settings
@@ -30,6 +46,7 @@ struct GameConfig: Codable, Equatable {
 
     // Private Server Settings
     var useMarch7thHoney: Bool = true
+    var betaUseMarch7thHoney: Bool = true
     var march7thHoneyAddress: String = "127.0.0.1:21000"
     var march7thServerPreset: March7thServerPreset = .local
     var customProxyPath: String = ""
@@ -71,9 +88,46 @@ struct GameConfig: Codable, Equatable {
         }
     }
 
-    var installURL: URL? {
-        guard let dir = installDirectory else { return nil }
-        return URL(fileURLWithPath: dir)
+    func installDirectory(for version: GameClientVersion) -> String? {
+        switch version {
+        case .official: return officialInstallDirectory
+        case .beta: return betaInstallDirectory
+        }
+    }
+
+    mutating func setInstallDirectory(_ directory: String?, for version: GameClientVersion) {
+        switch version {
+        case .official: officialInstallDirectory = directory
+        case .beta: betaInstallDirectory = directory
+        }
+    }
+
+    func installedVersion(for version: GameClientVersion) -> String? {
+        switch version {
+        case .official: return officialInstalledVersion
+        case .beta: return betaInstalledVersion
+        }
+    }
+
+    mutating func setInstalledVersion(_ installedVersion: String?, for version: GameClientVersion) {
+        switch version {
+        case .official: officialInstalledVersion = installedVersion
+        case .beta: betaInstalledVersion = installedVersion
+        }
+    }
+
+    func useMarch7thHoney(for version: GameClientVersion) -> Bool {
+        switch version {
+        case .official: return useMarch7thHoney
+        case .beta: return betaUseMarch7thHoney
+        }
+    }
+
+    mutating func setUseMarch7thHoney(_ enabled: Bool, for version: GameClientVersion) {
+        switch version {
+        case .official: useMarch7thHoney = enabled
+        case .beta: betaUseMarch7thHoney = enabled
+        }
     }
 
     // Any mode that needs the redirect proxy started before launch.
@@ -88,11 +142,12 @@ struct GameConfig: Codable, Equatable {
     // MARK: - Codable & Initializers
     
     enum CodingKeys: String, CodingKey {
-        case gameType, installDirectory, textLanguage, installedVersion, officialRegion
+        case gameType, officialInstallDirectory, betaInstallDirectory, textLanguage
+        case officialInstalledVersion, betaInstalledVersion, officialRegion
         case useGlobalWineSettings, wineSourceMode, customWinePath, wineDistribution, retinaMode, leftCommandIsCtrl
         case enableDXMT, installedDXMTVersion, metalHUD, enableHDR
         case customResolution, resolutionWidth, resolutionHeight
-        case useMarch7thHoney, march7thHoneyAddress, march7thServerPreset, customProxyPath
+        case useMarch7thHoney, betaUseMarch7thHoney, march7thHoneyAddress, march7thServerPreset, customProxyPath
         case useSteamPatch, enableReShade, workaround3
         case winemsync, alwaysReleaseCursor, aggressiveCursorRelease
         case predownloadedAll
@@ -100,9 +155,11 @@ struct GameConfig: Codable, Equatable {
 
     init(gameType: GameType) {
         self.gameType = gameType
-        self.installDirectory = nil
+        self.officialInstallDirectory = nil
+        self.betaInstallDirectory = nil
         self.textLanguage = "en"
-        self.installedVersion = nil
+        self.officialInstalledVersion = nil
+        self.betaInstalledVersion = nil
         self.officialRegion = .mainlandChina
         self.useGlobalWineSettings = true
         self.wineSourceMode = .github
@@ -118,6 +175,7 @@ struct GameConfig: Codable, Equatable {
         self.resolutionWidth = 1920
         self.resolutionHeight = 1080
         self.useMarch7thHoney = true
+        self.betaUseMarch7thHoney = true
         self.march7thHoneyAddress = "127.0.0.1:21000"
         self.march7thServerPreset = .local
         self.customProxyPath = ""
@@ -133,9 +191,11 @@ struct GameConfig: Codable, Equatable {
     init(from decoder: Decoder) throws {
         let container = try decoder.container(keyedBy: CodingKeys.self)
         self.gameType = try container.decode(GameType.self, forKey: .gameType)
-        self.installDirectory = try container.decodeIfPresent(String.self, forKey: .installDirectory)
+        self.officialInstallDirectory = try container.decodeIfPresent(String.self, forKey: .officialInstallDirectory)
+        self.betaInstallDirectory = try container.decodeIfPresent(String.self, forKey: .betaInstallDirectory)
         self.textLanguage = try container.decodeIfPresent(String.self, forKey: .textLanguage) ?? "en"
-        self.installedVersion = try container.decodeIfPresent(String.self, forKey: .installedVersion)
+        self.officialInstalledVersion = try container.decodeIfPresent(String.self, forKey: .officialInstalledVersion)
+        self.betaInstalledVersion = try container.decodeIfPresent(String.self, forKey: .betaInstalledVersion)
         self.officialRegion = try container.decodeIfPresent(OfficialGameRegion.self, forKey: .officialRegion) ?? .mainlandChina
         
         self.useGlobalWineSettings = try container.decodeIfPresent(Bool.self, forKey: .useGlobalWineSettings) ?? true
@@ -155,6 +215,7 @@ struct GameConfig: Codable, Equatable {
         self.resolutionHeight = try container.decodeIfPresent(Int.self, forKey: .resolutionHeight) ?? 1080
 
         self.useMarch7thHoney = try container.decodeIfPresent(Bool.self, forKey: .useMarch7thHoney) ?? true
+        self.betaUseMarch7thHoney = try container.decodeIfPresent(Bool.self, forKey: .betaUseMarch7thHoney) ?? self.useMarch7thHoney
         self.march7thHoneyAddress = try container.decodeIfPresent(String.self, forKey: .march7thHoneyAddress) ?? "127.0.0.1:21000"
         self.march7thServerPreset = try container.decodeIfPresent(March7thServerPreset.self, forKey: .march7thServerPreset) ?? .local
         self.customProxyPath = try container.decodeIfPresent(String.self, forKey: .customProxyPath) ?? ""
@@ -194,6 +255,7 @@ enum WineSourceMode: String, Codable, CaseIterable {
 
 struct LauncherSettings: Codable {
     var selectedGame: GameType = .honkaiStarRail
+    var selectedClientVersion: GameClientVersion = .official
     var gameConfigs: [GameType: GameConfig] = [:]
     var language: String = "en"
 
@@ -218,6 +280,7 @@ struct LauncherSettings: Codable {
     
     enum CodingKeys: String, CodingKey {
         case selectedGame
+        case selectedClientVersion
         case gameConfigs
         case language
         case selectedWineDistribution
@@ -228,6 +291,7 @@ struct LauncherSettings: Codable {
 
     init() {
         self.selectedGame = .honkaiStarRail
+        self.selectedClientVersion = .official
         self.gameConfigs = [:]
         self.language = "en"
         self.selectedWineDistribution = WineManager.defaultDistribution.id
@@ -239,6 +303,7 @@ struct LauncherSettings: Codable {
     init(from decoder: Decoder) throws {
         let container = try decoder.container(keyedBy: CodingKeys.self)
         self.selectedGame = try container.decodeIfPresent(GameType.self, forKey: .selectedGame) ?? .honkaiStarRail
+        self.selectedClientVersion = try container.decodeIfPresent(GameClientVersion.self, forKey: .selectedClientVersion) ?? .official
         self.gameConfigs = try container.decodeIfPresent([GameType: GameConfig].self, forKey: .gameConfigs) ?? [:]
         self.language = try container.decodeIfPresent(String.self, forKey: .language) ?? "en"
         self.selectedWineDistribution = try container.decodeIfPresent(String.self, forKey: .selectedWineDistribution) ?? WineManager.defaultDistribution.id

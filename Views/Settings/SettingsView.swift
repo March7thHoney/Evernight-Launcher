@@ -45,7 +45,7 @@ struct SettingsView: View {
                                     .foregroundStyle(type.accentColor)
                                 Spacer()
                                 let config = gameManager.settings.config(for: type)
-                                if let dir = config.installDirectory {
+                                if let dir = config.installDirectory(for: gameManager.selectedClientVersion) {
                                     Text(dir)
                                         .font(.caption)
                                         .foregroundStyle(.secondary)
