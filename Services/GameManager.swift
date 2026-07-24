@@ -393,6 +393,15 @@ class GameManager {
             return
         }
 
+        if type == .honkaiStarRail {
+            ActiveLaunchContextManager.clear()
+        }
+        defer {
+            if type == .honkaiStarRail {
+                ActiveLaunchContextManager.clear()
+            }
+        }
+
         await MainActor.run { gameStates[type] = .launching }
 
         var freePort = 8080
@@ -767,6 +776,18 @@ class GameManager {
             // If steamPatch is enabled for Genshin, use steam.exe as launcher
             let winBatchPath = wineManager.toWinePath(batchPath!)
             let winExePath = winePath(in: wineGameDir, relativePath: type.executable)
+            if type == .honkaiStarRail && !config.useMarch7thHoney {
+                var runtimeWineEnvironment = wineManager.wineEnvironment(prefix: prefix)
+                runtimeWineEnvironment.merge(env) { _, new in new }
+                try ActiveLaunchContextManager.publish(
+                    wineBinary: wineManager.getWineBinary(),
+                    winePrefix: prefix,
+                    gameDirectory: installDir,
+                    wineExecutable: winExePath,
+                    environment: runtimeWineEnvironment
+                )
+                launchLog.info("[Phase 3] Published direct-launch runtime context")
+            }
             let process: Process
             if config.useSteamPatch && type == .genshinImpact {
                 // Launch via steam.exe
