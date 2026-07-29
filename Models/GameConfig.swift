@@ -32,6 +32,7 @@ struct GameConfig: Codable, Equatable {
     var wineDistribution: String = WineManager.defaultDistribution.id // Default is Stable
     var retinaMode: Bool = true         // retinaMode support
     var leftCommandIsCtrl: Bool = true  // map Left Command to Control
+    var patchUIScale: Double = 2.0
 
     // Graphics settings
     var enableDXMT: Bool = true
@@ -144,7 +145,7 @@ struct GameConfig: Codable, Equatable {
     enum CodingKeys: String, CodingKey {
         case gameType, officialInstallDirectory, betaInstallDirectory, textLanguage
         case officialInstalledVersion, betaInstalledVersion, officialRegion
-        case useGlobalWineSettings, wineSourceMode, customWinePath, wineDistribution, retinaMode, leftCommandIsCtrl
+        case useGlobalWineSettings, wineSourceMode, customWinePath, wineDistribution, retinaMode, leftCommandIsCtrl, patchUIScale
         case enableDXMT, installedDXMTVersion, metalHUD, enableHDR
         case customResolution, resolutionWidth, resolutionHeight
         case useMarch7thHoney, betaUseMarch7thHoney, march7thHoneyAddress, march7thServerPreset, customProxyPath
@@ -167,6 +168,7 @@ struct GameConfig: Codable, Equatable {
         self.wineDistribution = WineManager.defaultDistribution.id
         self.retinaMode = true
         self.leftCommandIsCtrl = true
+        self.patchUIScale = 2.0
         self.enableDXMT = true
         self.installedDXMTVersion = nil
         self.metalHUD = false
@@ -204,6 +206,7 @@ struct GameConfig: Codable, Equatable {
         self.wineDistribution = try container.decodeIfPresent(String.self, forKey: .wineDistribution) ?? WineManager.defaultDistribution.id
         self.retinaMode = try container.decodeIfPresent(Bool.self, forKey: .retinaMode) ?? true
         self.leftCommandIsCtrl = try container.decodeIfPresent(Bool.self, forKey: .leftCommandIsCtrl) ?? true
+        self.patchUIScale = min(max(try container.decodeIfPresent(Double.self, forKey: .patchUIScale) ?? 2.0, 1.0), 2.5)
         
         self.enableDXMT = try container.decodeIfPresent(Bool.self, forKey: .enableDXMT) ?? true
         self.installedDXMTVersion = try container.decodeIfPresent(String.self, forKey: .installedDXMTVersion)

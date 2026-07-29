@@ -80,18 +80,26 @@ struct RegistryManager {
         ]
     }
 
-    // Pin conhost geometry AND font cell size every launch so the console stays a normal 80x30 box; an unresolved system font otherwise gets a garbage cell width and renders as a strip.
-    static func generateConsoleRegistryEntries() -> [Entry] {
-        [
+    // Scale conhost independently from the game while keeping its window within the display.
+    static func generateConsoleRegistryEntries(scale: Double = 1.0) -> [Entry] {
+        let clampedScale = min(max(scale, 1.0), 2.5)
+        let fontWidth = UInt32((8.0 * clampedScale).rounded())
+        let fontHeight = UInt32((16.0 * clampedScale).rounded())
+        let columns = UInt32(min(80, max(60, Int((1024.0 / Double(fontWidth)).rounded()))))
+        let rows = UInt32(min(30, max(20, Int((720.0 / Double(fontHeight)).rounded()))))
+        let windowSize = (rows << 16) | columns
+        let fontSize = (fontHeight << 16) | fontWidth
+
+        return [
             (
                 key: "HKEY_CURRENT_USER\\Console",
                 values: [
-                    ("WindowSize", .dword(0x001E_0050)),
+                    ("WindowSize", .dword(windowSize)),
                     ("ScreenBufferSize", .dword(0x012C_0050)),
                     ("FaceName", .string("Courier New")),
                     ("FontFamily", .dword(0x0000_0036)),
                     ("FontWeight", .dword(0x0000_0190)),
-                    ("FontSize", .dword(0x0010_0008)),
+                    ("FontSize", .dword(fontSize)),
                 ]
             )
         ]

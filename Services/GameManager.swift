@@ -577,14 +577,14 @@ class GameManager {
 
             let cursorReleaseEnabled = config.alwaysReleaseCursor
             let aggressiveCursorReleaseEnabled = cursorReleaseEnabled && config.aggressiveCursorRelease
-            launchLog.info("[Phase 1] Preparing launch registry (retina=\(config.retinaMode), leftCmd=\(config.leftCommandIsCtrl), alwaysReleaseCursor=\(config.alwaysReleaseCursor), aggressiveCursorRelease=\(config.aggressiveCursorRelease))")
+            launchLog.info("[Phase 1] Preparing launch registry (retina=\(config.retinaMode), patchUIScale=\(config.patchUIScale), leftCmd=\(config.leftCommandIsCtrl), alwaysReleaseCursor=\(config.alwaysReleaseCursor), aggressiveCursorRelease=\(config.aggressiveCursorRelease))")
             registryEntries += RegistryManager.generateWinePropsRegistryEntries(
                 retinaMode: config.retinaMode,
                 leftCommandIsCtrl: config.leftCommandIsCtrl,
                 alwaysReleaseCursor: cursorReleaseEnabled
             )
 
-            registryEntries += RegistryManager.generateConsoleRegistryEntries()
+            registryEntries += RegistryManager.generateConsoleRegistryEntries(scale: config.patchUIScale)
             registryEntries += RegistryManager.generateAudioDriverRegistryEntries()
 
             if type == .honkaiStarRail && useDXMT {
@@ -736,6 +736,7 @@ class GameManager {
             // 3b. Build environment variables
             var env: [String: String] = [:]
             let baseDir = WineManager.basePath
+            env["EVERNIGHT_PATCH_UI_SCALE"] = String(format: "%.2f", config.patchUIScale)
 
             if usesMountedCNCompatibility {
                 env["LANG"] = "zh_CN.UTF-8"

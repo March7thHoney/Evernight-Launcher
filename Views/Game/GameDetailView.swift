@@ -595,6 +595,15 @@ struct GameSettingsContent: View {
 
                         Toggle("Retina Mode", isOn: configBinding(\.retinaMode))
                         Toggle("Left ⌘ as Ctrl", isOn: configBinding(\.leftCommandIsCtrl))
+                        HStack {
+                            Text("Patch UI Scale")
+                            Slider(value: configBinding(\.patchUIScale), in: 1.0...2.5, step: 0.25)
+                            Text("\(Int((gameManager.settings.config(for: gameType).patchUIScale * 100).rounded()))%")
+                                .font(.caption.monospacedDigit())
+                                .foregroundStyle(.secondary)
+                                .frame(width: 42, alignment: .trailing)
+                        }
+                        .help("Scales the patch console and compatible overlays on the next game launch without changing game resolution.")
                     }
 
                     settingsGroup("Graphics") {
