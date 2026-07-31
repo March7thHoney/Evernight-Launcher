@@ -473,7 +473,9 @@ class GameManager {
         var batchPath: String?
         var managedDriveMapping: ManagedWineDriveMapping?
         var proxyRegistryEnabled = false
+        var proxyLogHandle: FileHandle?
         var wineGameDir = wineManager.toWinePath(installDir)
+        let launchID = UUID().uuidString.lowercased()
         
         let prefix = WineManager.defaultPrefixPath
         let launchLog = LaunchLogger(gameType: type)
@@ -495,6 +497,7 @@ class GameManager {
             
             launchLog.info("════════════════════════════════════════")
             launchLog.info("Launching \(type.displayName)")
+            launchLog.info("Launch ID: \(launchID)")
             launchLog.info("Install dir: \(installDir)")
             launchLog.info("Wine binary: \(wineManager.getWineBinary())")
             launchLog.info("Wine mode: \(settings.config(for: type).useGlobalWineSettings ? "Global" : "Per-game custom")")
@@ -541,10 +544,12 @@ class GameManager {
                     proxyProcess.arguments = ["-no-sys", "-p", String(freePort), "-filter-only"]
                 }
                 proxyProcess.currentDirectoryURL = URL(fileURLWithPath: proxyDirectoryPath)
-                // Capture firefly output to a log so launch failures (forwarding, TLS) are diagnosable.
-                let fireflyLogPath = WineManager.logsPath + "/firefly.log"
-                FileManager.default.createFile(atPath: fireflyLogPath, contents: nil)
+                try FileManager.default.createDirectory(atPath: WineManager.logsPath, withIntermediateDirectories: true)
+                let fireflyLogPath = WineManager.logsPath + "/firefly_\(launchID).log"
+                FileManager.default.createFile(atPath: fireflyLogPath, contents: Data())
                 if let fh = FileHandle(forWritingAtPath: fireflyLogPath) {
+                    fh.truncateFile(atOffset: 0)
+                    proxyLogHandle = fh
                     proxyProcess.standardOutput = fh
                     proxyProcess.standardError = fh
                 } else {
@@ -553,6 +558,7 @@ class GameManager {
                 }
 
                 launchLog.info("[Phase 1] Starting \(proxyMode) proxy at port \(freePort)...")
+                launchLog.info("[Phase 1] Firefly log file: \(fireflyLogPath)")
                 try proxyProcess.run()
                 self.activeProxyProcess = proxyProcess
                 
@@ -822,7 +828,7 @@ class GameManager {
             // 3c. Setup logging
             let logsDir = WineManager.logsPath
             try FileManager.default.createDirectory(atPath: logsDir, withIntermediateDirectories: true)
-            let logFile = logsDir + "/\(type.rawValue)_\(Int(Date().timeIntervalSince1970)).log"
+            let logFile = logsDir + "/\(type.rawValue)_\(launchID).log"
 
             // Log all env vars
             launchLog.info("[Phase 3] Environment variables:")
@@ -945,9 +951,8 @@ class GameManager {
             // 4e. Terminate proxy
             if activeProxyProcess != nil {
                 launchLog.info("[Phase 4] Terminating proxy...")
-                activeProxyProcess?.terminate()
-                activeProxyProcess = nil
             }
+            stopProxy(logHandle: &proxyLogHandle)
             if proxyRegistryEnabled {
                 do {
                     try await disableWineProxy(prefix: prefix)
@@ -970,10 +975,7 @@ class GameManager {
             }
             
             // Clean up proxy process
-            if activeProxyProcess != nil {
-                activeProxyProcess?.terminate()
-                activeProxyProcess = nil
-            }
+            stopProxy(logHandle: &proxyLogHandle)
             if proxyRegistryEnabled {
                 try? await disableWineProxy(prefix: prefix)
                 proxyRegistryEnabled = false
@@ -1014,6 +1016,18 @@ class GameManager {
                 reportError(error.localizedDescription, for: type, clientVersion: clientVersion)
             }
         }
+    }
+
+    private func stopProxy(logHandle: inout FileHandle?) {
+        if let process = activeProxyProcess {
+            if process.isRunning {
+                process.terminate()
+            }
+            process.waitUntilExit()
+            activeProxyProcess = nil
+        }
+        try? logHandle?.close()
+        logHandle = nil
     }
 
     private func disableWineProxy(prefix: String) async throws {
