@@ -2,9 +2,9 @@
 
 [English](README.md) | **简体中文**
 
-一个用 Swift & SwiftUI 编写的原生 macOS **崩坏：星穹铁道** 启动器。它通过 [Wine](https://www.winehq.org/) 兼容层与 [DXMT](https://github.com/3Shain/dxmt)（Direct3D 11 → Metal 转译）运行 Windows 客户端，并将其连接到私服。
+一个用 Swift & SwiftUI 编写的原生 macOS **崩坏：星穹铁道** 启动器。它负责下载、更新、校验并启动官方 Windows 客户端，通过 [Wine](https://www.winehq.org/) 兼容层与 [DXMT](https://github.com/3Shain/dxmt)（Direct3D 11 → Metal 转译）运行。
 
-> Fork 自 [Kafka-Launcher](https://github.com/Furiri443/Kafka-Launcher)，精简为只专注于一款游戏——崩坏：星穹铁道——及其私服。
+> Fork 自 [Kafka-Launcher](https://github.com/Furiri443/Kafka-Launcher)。
 
 - 💬 **Discord：** https://discord.gg/CyreneEchoes
 - **本项目：** https://github.com/March7thHoney/Evernight-Launcher
@@ -17,135 +17,61 @@
 | 组件 | 要求 |
 | :--- | :--- |
 | **macOS** | macOS 14 Sonoma 或更高 |
-| **架构** | Apple Silicon (arm64) |
-| **Xcode** | Xcode 15 或更高（从源码编译时） |
+| **架构** | Apple Silicon 与 Intel 均可 —— 发布 arm64、x86_64、Universal 三个包 |
+| **Xcode** | Xcode 15 或更高（仅从源码编译时需要） |
 | **Wine / DXMT / Jadeite** | 由 app 自动下载与管理 |
 
 ---
 
-## 支持的游戏
+## 快速开始
 
-| 游戏 | 状态 |
-| :--- | :---: |
-| 崩坏：星穹铁道 | ✅ |
-
-原神和绝区零（上游启动器中存在）已被刻意移除——本启动器只服务于崩坏：星穹铁道。
-
----
-
-## 私服
-
-启动器在 Wine 下启动官方崩坏：星穹铁道客户端，并通过本地 MITM 代理把它的 dispatch 流量重定向到私服。代理的 CA 证书会被导入 Wine prefix，使客户端的 HTTPS dispatch 校验通过；随后游戏连接到 dispatch 返回的网关。在 **崩坏：星穹铁道 → 设置 → Network** 中启用：
-
-| 模式 | 作用 |
-| :--- | :--- |
-| **Play on March7thHoney** | 把 dispatch 重定向到本地运行的 March7thHoney 服务端（`127.0.0.1:21000`）。请先自行启动服务端，再启动游戏。 |
-
-启用后底部启动按钮显示 *Launch March7thHoney*。
+1. 从 [Releases](https://github.com/March7thHoney/Evernight-Launcher/releases) 下载对应 CPU 架构的包，解压后拖进「应用程序」。
+2. 打开 app，点击齿轮图标 → **Game Client Update**（游戏客户端更新）：
+   - *已有客户端？* 关闭设置，用底部的 **Locate Game**（定位游戏）指向游戏目录。
+   - *全新安装？* 选择 **Official Region**（官服区服，CN / OS），然后点 **Download Game**（下载游戏）。
+3. 取消勾选底部的 **Play on March7thHoney**，即为官服直连模式。
+4. 点击 **Launch** 启动。
 
 ---
 
 ## 功能特性
 
-### 原生 macOS 体验
-完全用 Swift & SwiftUI 构建，没有 Electron 或 Node.js 运行时开销。使用现代的 `@Observable` 宏做响应式状态管理，SwiftUI 更新流畅。
-
-### Wine 管理
-自动下载并管理 Wine（包括为 Metal API 调优的社区构建，如 **3Shain v9.9-dxmt**）。处理 Media Foundation DLL 安装以修复游戏内过场动画播放。
-
-### DXMT（DirectX 11 → Metal）
-按版本智能放置 DLL，以获得最佳的 D3D11 → Metal 转译：
-- DXMT ≥ 0.74.0 → 直接装入 Wine 的库目录。
-- DXMT < 0.74.0 → 装入 `system32/` 并设置 native override。
-
-### 二进制版本检测
-直接读取 Unity 二进制数据文件（如 `globalgamemanagers`）来检测已安装的游戏版本——比解析文本日志或配置文件更准确、更稳健。
-
-### 四阶段启动流程
-
-```
-Phase 0 — 清理残留 wineserver（避免 esync/msync 模式不匹配导致的崩溃）
-
-Phase 1 — 启动前准备
-  启动重定向代理 → 设置 Wine 属性
-  → 应用分辨率与 HDR 注册表 → 配置代理
-  → 导入代理 CA + macOS 证书 → 等待 WineServer 空闲
-
-Phase 2 — 打补丁
-  放置 DXMT DLL → 注入 nvngx.dll → 下载 Jadeite → 备份崩溃上报程序
-
-Phase 3 — 启动游戏
-  生成 config.bat → 设置环境变量
-  → 通过 Wine/Jadeite 启动 → 监控进程直到退出
-
-Phase 4 — 启动后清理
-  还原注册表 → 恢复备份文件
-  → 还原 DXMT DLL → 终止代理 → 清理 config.bat
-```
-
-**启动前准备** —— 配置 Wine 属性（Retina 模式、左 Command → Control 键映射）。生成代理设置的 `.reg` 文件，并把重定向代理的 CA 与 macOS 钥匙串根证书导入 Wine 证书库，保证 HTTPS dispatch 可靠。
-
-**打补丁** —— 放置 DXMT 转译库，注入 `nvngx.dll` 做 NVIDIA GPU 模拟，并备份游戏崩溃上报程序以避免 Wine 冲突。
-
-**启动游戏** —— 设置关键环境变量，包括用于高性能线程的 `WINEMSYNC`/`WINEESYNC`、为星铁伪造 NVIDIA GPU 厂商/设备 ID 的 `DXMT_CONFIG`（`10de`/`2684`），以及执行 dispatch 重定向的 HTTP/HTTPS 代理。
-
-**启动后清理** —— 从 `.bak` 备份还原所有被修改的文件，还原注册表改动，终止代理，并删除临时脚本。
-
-### 崩坏：星穹铁道专属
-- 使用 **Jadeite 包装器**（v4.1.0）启动客户端。
-- 通过 DXMT 做 **NVIDIA GPU 伪装** 以正确渲染。
-- 应用 **WebView 修复**（游戏内浏览器）。
-
-### xdelta3 二进制补丁
-用 `xdelta3` 为 Wine 兼容性打二进制补丁。每次会话结束后自动还原所有补丁，以保持原始游戏数据不变。
-
-### 游戏客户端更新（ldiff/hdiff）
-在 **设置 → Game Client Update** 中选择客户端补丁包（`.7z`/`.zip`/`.rar`）即可更新已安装的客户端，同时支持 `ldiff`（分块清单）与 `hdiff`（文件级）两种补丁。补丁工具及其 `hpatchz`、`7zz` 辅助程序已随 app 打包，因此在任何 Mac 上都能用，无需 Homebrew。
-
-补丁工具 `patch-cli` 用 Go 编写，完整源码已纳入 git，位于 `PatchToolSource/`。要修改它，编辑源码后用 `cd PatchToolSource && ./build.sh` 重建（需 Go 工具链），脚本会把新的 universal `patch-cli` 输出到 `PatchTool/`。无论编译 app 还是重建工具，都不依赖任何外部目录。
-
-### 与 Kafka-Launcher 相互独立
-使用独立的数据目录（`~/.evernight-launcher`）和包标识（`com.march7thhoney.evernight-launcher`），因此可以与原版 Kafka-Launcher 并存运行，不共享 Wine prefix、游戏配置或设置。上游的自动更新已禁用（因为这是定制 fork）。
+- **官方客户端管理** —— 国服、国际服双区支持（国服走 `hyp-api.mihoyo.com`，国际服走 `sg-hyp-api.hoyoverse.com`）：完整下载（分包 MD5 校验 + 磁盘余量检查）、增量更新，以及对照官方资源清单的 **Quick Verify**（快速校验）与 **Repair Files**（修复文件）。
+- **二进制版本检测** —— 直接读取 Unity `globalgamemanagers` 数据文件来识别已安装版本。
+- **正式服 / Beta 双客户端档位** —— 安装目录、已安装版本与状态各自独立记录。Beta 档位通过本地补丁包（`.7z` / `.zip` / `.rar`）更新，同时支持 `ldiff`（分块清单）与 `hdiff`（文件级）两种补丁。
+- **Wine 管理** —— 提供 8 个 Wine 构建可选，默认 **Wine 11.8 DXMT (signed)**。按需创建与重建 prefix，并安装修复游戏内过场动画的 Media Foundation DLL。
+- **DXMT 0.80（DirectX 11 → Metal）** —— 按版本放置 DLL：≥ 0.74 装入 Wine 的 builtin 库目录，< 0.74 装入 `system32/` 并设置 native override。会话结束后所有改动文件自动还原。
+- **启动方式** —— 通过 **Jadeite** 包装器（v4.1.0）启动客户端，并用 `DXMT_CONFIG` 伪装 NVIDIA GPU 以保证渲染正确。
+- **图形与输入** —— Metal HUD、HDR、自定义分辨率、Retina 模式、左 ⌘ 映射为 Ctrl、补丁界面缩放（1.0–2.5），以及适合手柄游玩的「始终释放光标」选项。
+- **文本语言** —— 可在英文、中文、日文、韩文之间切换游戏内文本语言。
+- **高级选项** —— `WINEMSYNC` 高性能线程，以及针对安装在挂载网络卷上的客户端的实验性兼容支持。
+- **启动器自动更新** —— 检查本仓库的最新 release，按 CPU 架构挑选对应资产，在 app 内下载并安装。
+- **工具全部自带** —— `patch-cli`、`hpatchz`、`7zz` 随 app 一起打包，无需 Homebrew，也不依赖任何外部目录。
 
 ---
 
-## 项目结构
+## 从源码编译
 
+用 Xcode 打开 `Kafka-Launcher.xcodeproj` 直接编译 —— 工程、target 与 scheme 沿用上游名称，但产物是 `Evernight Launcher.app`。
+
+补丁工具 `patch-cli` 用 Go 编写，完整源码已纳入 git，位于 [`PatchToolSource/`](PatchToolSource)。重建方式：
+
+```sh
+cd PatchToolSource && ./build.sh
 ```
-Evernight-Launcher/
-├── Models/
-│   ├── GameConfig.swift          # 每游戏配置 + 私服模式（March7thHoney）
-│   ├── GameInfo.swift            # 游戏元数据
-│   ├── GameState.swift           # 状态机（notInstalled、ready、running、updating…）
-│   └── GameType.swift            # 游戏枚举 + `displayed` 列表（仅崩坏：星穹铁道）
-├── Services/
-│   ├── GameManager.swift         # 中枢编排：安装、更新、代理与启动生命周期
-│   ├── WineManager.swift         # Wine 安装、wineprefix、MediaFoundation DLL
-│   ├── DXMTManager.swift         # DXMT 下载与按版本放置 DLL
-│   ├── RegistryManager.swift     # Wine 注册表文件生成（UTF-16LE + BOM）、CA 导入
-│   ├── PatchManager.swift        # xdelta3 二进制补丁的应用与还原
-│   ├── JadeiteManager.swift      # Jadeite 包装器管理
-│   ├── GameServerAPI.swift       # 更新清单
-│   └── GameVersionDetector.swift # 基于 Unity 二进制的版本检测
-├── Utilities/
-│   ├── ProcessRunner.swift       # 异步 shell 进程执行
-│   └── Extensions.swift          # Swift 工具扩展
-├── Views/                        # SwiftUI 视图（MainView、GameDetailView、Settings…）
-├── PatchTool/                    # 随 app 打包的成品二进制（patch-cli、hpatchz、7zz）
-└── PatchToolSource/              # patch-cli 的 Go 源码 —— 用 ./build.sh 重建
-```
+
+需要 Go 工具链（≥ 1.26），脚本会把新的 universal 二进制输出到 `PatchTool/`。仓库自包含：无论编译 app 还是重建工具，都不依赖任何外部目录。
 
 ---
 
 ## 致谢
 
 - **[Kafka-Launcher](https://github.com/Furiri443/Kafka-Launcher)** —— 本项目 fork 自的上游启动器
+- **[YAGL](https://github.com/yaagl/yet-another-anime-game-launcher)** —— Kafka-Launcher 所基于的启动器
 - **[Wine](https://www.winehq.org/)** —— Windows 兼容层
 - **[DXMT](https://github.com/3Shain/dxmt)** —— 3Shain 的 DirectX 11 → Metal 转译
-- **[Jadeite](https://github.com/an-anime-team/jadeite)** —— 崩坏：星穹铁道的反作弊包装器
-- **[xdelta3](http://xdelta.org/)** —— 二进制增量补丁
-- **[YAGL](https://github.com/yaagl/yet-another-anime-game-launcher)** —— Kafka-Launcher 所基于的启动器
-- **[FireflyGo Proxy](https://github.com/AzenKain/FireflyGo_Proxy)** —— AzenKain 的本地 MITM 重定向代理
+- **[Jadeite](https://codeberg.org/mkrsym1/jadeite)** —— 崩坏：星穹铁道的反作弊包装器
+- **[FireflyGo Proxy](https://github.com/AzenKain/FireflyGo_Proxy)** —— AzenKain 的本地代理
 
 ---
 

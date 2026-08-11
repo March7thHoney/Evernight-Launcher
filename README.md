@@ -2,9 +2,9 @@
 
 **English** | [简体中文](README.zh-CN.md)
 
-A native macOS launcher for **Honkai: Star Rail**, built with Swift & SwiftUI. It runs the Windows client through the [Wine](https://www.winehq.org/) compatibility layer with [DXMT](https://github.com/3Shain/dxmt) (Direct3D 11 → Metal translation), and connects it to a private server.
+A native macOS launcher for **Honkai: Star Rail**, built with Swift & SwiftUI. It downloads, updates, verifies and launches the official Windows client, running it through the [Wine](https://www.winehq.org/) compatibility layer with [DXMT](https://github.com/3Shain/dxmt) (Direct3D 11 → Metal translation).
 
-> Forked from [Kafka-Launcher](https://github.com/Furiri443/Kafka-Launcher) and trimmed down to focus on a single game — Honkai: Star Rail — and its private servers.
+> Forked from [Kafka-Launcher](https://github.com/Furiri443/Kafka-Launcher).
 
 - 💬 **Discord:** https://discord.gg/CyreneEchoes
 - **This project:** https://github.com/March7thHoney/Evernight-Launcher
@@ -17,138 +17,61 @@ A native macOS launcher for **Honkai: Star Rail**, built with Swift & SwiftUI. I
 | Component | Requirement |
 | :--- | :--- |
 | **macOS** | macOS 14 Sonoma or later |
-| **Architecture** | Apple Silicon (arm64) |
-| **Xcode** | Xcode 15 or later (to build from source) |
+| **Architecture** | Apple Silicon or Intel — arm64, x86_64 and Universal builds are published |
+| **Xcode** | Xcode 15 or later (only needed to build from source) |
 | **Wine / DXMT / Jadeite** | Downloaded & managed automatically by the app |
 
 ---
 
-## Supported Games
+## Quick Start
 
-| Game | Status |
-| :--- | :---: |
-| Honkai: Star Rail | ✅ |
-
-Genshin Impact and Zenless Zone Zero (present in the upstream launcher) are intentionally removed — this launcher is Honkai: Star Rail only.
-
----
-
-## Private Servers
-
-The launcher starts the official Honkai: Star Rail client under Wine and redirects its dispatch
-traffic to a private server through a local MITM proxy. The proxy's CA certificate is imported into
-the Wine prefix so the client's HTTPS dispatch validates; the game then connects to the gateway the
-dispatch returns. Enable it in **Honkai: Star Rail → Settings → Network**:
-
-| Mode | What it does |
-| :--- | :--- |
-| **Play on March7thHoney** | Redirects dispatch to a March7thHoney server running locally (`127.0.0.1:21000`). Start the server yourself first, then launch the game. |
-
-The launch button shows *Launch March7thHoney* when enabled.
+1. Grab the build for your CPU from [Releases](https://github.com/March7thHoney/Evernight-Launcher/releases), unzip it and drag it into **Applications**.
+2. Open the app and click the gear icon → **Game Client Update**:
+   - *Already have the client?* Close settings and use **Locate Game** in the bottom bar to point at the game folder.
+   - *Fresh install?* Pick your **Official Region** (CN / OS), then **Download Game**.
+3. Uncheck **Play on March7thHoney** in the bottom bar to connect directly to the official servers.
+4. Click **Launch**.
 
 ---
 
 ## Features
 
-### Native macOS Experience
-Built entirely in Swift & SwiftUI with zero Electron or Node.js runtime overhead. Uses the modern `@Observable` macro for reactive state management and smooth SwiftUI updates.
-
-### Wine Management
-Automatically downloads and manages Wine installations, including optimized community builds (e.g., **3Shain v9.9-dxmt** tuned for the Metal API). Handles Media Foundation DLL installation to fix in-game cutscene playback.
-
-### DXMT (DirectX 11 → Metal)
-Version-aware DLL placement for optimal D3D11 to Metal translation:
-- DXMT ≥ 0.74.0 → installed directly into Wine's library directory.
-- DXMT < 0.74.0 → installed into `system32/` with native override.
-
-### Binary Version Detection
-Reads Unity binary data files (e.g., `globalgamemanagers`) directly to detect the installed game version — more accurate and resilient than text log or config file parsing.
-
-### 4-Phase Launch Sequence
-
-```
-Phase 0 — Clear any stale wineserver (avoids an esync/msync mismatch crash)
-
-Phase 1 — Pre-Launch Setup
-  Start the redirect proxy → Set Wine properties
-  → Apply Resolution & HDR Registry → Configure Proxy
-  → Import the proxy CA + macOS Certificates → Wait for WineServer to idle
-
-Phase 2 — Patching
-  Place DXMT DLLs → Inject nvngx.dll → Download Jadeite → Backup Crash Reporters
-
-Phase 3 — Game Execution
-  Generate config.bat → Set Environment Variables
-  → Launch via Wine/Jadeite → Monitor process until exit
-
-Phase 4 — Post-Launch Cleanup
-  Revert Registry → Restore backup files
-  → Revert DXMT DLLs → Terminate proxy → Clean up config.bat
-```
-
-**Pre-Launch Setup** — Configures Wine properties (Retina Mode, Left Command → Control key mapping). Generates `.reg` files for proxy settings and imports both the redirect-proxy CA and macOS Keychain root certificates into the Wine certificate store for reliable HTTPS dispatch.
-
-**Patching** — Places DXMT translation libraries, injects `nvngx.dll` for NVIDIA GPU emulation, and backs up game crash reporter executables to prevent Wine conflicts.
-
-**Game Execution** — Sets key environment variables including `WINEMSYNC`/`WINEESYNC` for high-performance threading and `DXMT_CONFIG` to spoof an NVIDIA GPU vendor/device ID for Star Rail (`10de`/`2684`), plus the HTTP/HTTPS proxy that performs the dispatch redirect.
-
-**Post-Launch Cleanup** — Restores all patched files from `.bak` backups, reverts registry changes, terminates the proxy, and removes temporary scripts.
-
-### Honkai: Star Rail Specifics
-- **Jadeite wrapper** (v4.1.0) is used to launch the client.
-- **NVIDIA GPU spoof** via DXMT for correct rendering.
-- **WebView fix** applied for the in-game browser.
-
-### xdelta3 Binary Patching
-Applies binary patches for Wine compatibility using `xdelta3`. All patches are automatically reverted after each session to preserve the original game data.
-
-### Game Client Update (ldiff/hdiff)
-Apply a game client patch archive (`.7z`/`.zip`/`.rar`) from **Settings → Game Client Update** to update the installed client. Supports both `ldiff` (chunked manifest) and `hdiff` (file-level) patches. The patch tool and its `hpatchz` + `7zz` helpers are bundled in the app, so it works on any Mac without Homebrew.
-
-The patch tool (`patch-cli`) is written in Go; its full source is tracked in `PatchToolSource/`. To modify it, edit the source and rebuild with `cd PatchToolSource && ./build.sh` (requires the Go toolchain) — the script stages a fresh universal `patch-cli` into `PatchTool/`. No external directory is required to build the app or rebuild the tool.
-
-### Independent from Kafka-Launcher
-Uses its own data directory (`~/.evernight-launcher`) and bundle identifier (`com.march7thhoney.evernight-launcher`), so it can be installed and run alongside the original Kafka-Launcher without sharing Wine prefixes, game setup, or settings. The upstream auto-updater is disabled, since this is a customized fork.
+- **Official client management** — Both regions supported (CN via `hyp-api.mihoyo.com`, OS via `sg-hyp-api.hoyoverse.com`): full download with MD5-verified packages and a free-space check, incremental updates, plus **Quick Verify** and **Repair Files** against the official resource list.
+- **Binary version detection** — Reads the Unity `globalgamemanagers` data file directly to identify the installed version.
+- **Independent Official / Beta profiles** — Install directory, installed version and state are tracked separately per profile. The Beta profile updates from a local patch archive (`.7z` / `.zip` / `.rar`), supporting both `ldiff` (chunked manifest) and `hdiff` (file-level) patches.
+- **Wine management** — Eight Wine builds to choose from, defaulting to **Wine 11.8 DXMT (signed)**. Creates and recreates the prefix on demand, and installs the Media Foundation DLLs that fix in-game cutscene playback.
+- **DXMT 0.80 (DirectX 11 → Metal)** — Version-aware DLL placement: ≥ 0.74 goes into Wine's builtin library directory, < 0.74 into `system32/` with a native override. Every patched file is reverted when the session ends.
+- **Launch** — The client is started through the **Jadeite** wrapper (v4.1.0), with an NVIDIA GPU spoof via `DXMT_CONFIG` for correct rendering.
+- **Graphics & input** — Metal HUD, HDR, custom resolution, Retina mode, Left ⌘ as Ctrl, patch UI scale (1.0–2.5), and an always-release-cursor option for gamepad play.
+- **Text language** — Switch the in-game text language between English, Chinese, Japanese and Korean.
+- **Advanced** — `WINEMSYNC` high-performance threading, and experimental compatibility for a client installed on a mounted network volume.
+- **Launcher auto-update** — Checks this repository's latest release, picks the asset matching your CPU architecture, and downloads & installs it in-app.
+- **Everything bundled** — `patch-cli`, `hpatchz` and `7zz` ship inside the app, so no Homebrew or external directory is required.
 
 ---
 
-## Project Structure
+## Building from Source
 
+Open `Kafka-Launcher.xcodeproj` in Xcode and build — the project, target and scheme keep the upstream name, but the product is `Evernight Launcher.app`.
+
+The patch tool `patch-cli` is written in Go and its full source is tracked in [`PatchToolSource/`](PatchToolSource). To rebuild it:
+
+```sh
+cd PatchToolSource && ./build.sh
 ```
-Evernight-Launcher/
-├── Models/
-│   ├── GameConfig.swift          # Per-game config + private-server mode (March7thHoney)
-│   ├── GameInfo.swift            # Game metadata
-│   ├── GameState.swift           # State machine (notInstalled, ready, running, updating…)
-│   └── GameType.swift            # Game enum + `displayed` list (Honkai: Star Rail only)
-├── Services/
-│   ├── GameManager.swift         # Central orchestrator: install, update, proxy & launch lifecycle
-│   ├── WineManager.swift         # Wine installation, wineprefix, MediaFoundation DLLs
-│   ├── DXMTManager.swift         # DXMT download & version-aware DLL placement
-│   ├── RegistryManager.swift     # Wine registry file generation (UTF-16LE + BOM), CA import
-│   ├── PatchManager.swift        # xdelta3 binary patch apply & restore
-│   ├── JadeiteManager.swift      # Jadeite wrapper management
-│   ├── GameServerAPI.swift       # Update manifests
-│   └── GameVersionDetector.swift # Unity binary-based version detection
-├── Utilities/
-│   ├── ProcessRunner.swift       # Async shell process execution
-│   └── Extensions.swift          # Swift utility extensions
-├── Views/                        # SwiftUI views (MainView, GameDetailView, Settings…)
-├── PatchTool/                    # Bundled binaries shipped in the app (patch-cli, hpatchz, 7zz)
-└── PatchToolSource/              # Go source for patch-cli — rebuild via ./build.sh
-```
+
+That requires the Go toolchain (≥ 1.26) and stages a fresh universal binary into `PatchTool/`. The repository is self-contained: neither the app nor the tool depends on any external directory.
 
 ---
 
 ## Credits
 
 - **[Kafka-Launcher](https://github.com/Furiri443/Kafka-Launcher)** — the upstream launcher this project is forked from
+- **[YAGL](https://github.com/yaagl/yet-another-anime-game-launcher)** — the launcher Kafka-Launcher is based on
 - **[Wine](https://www.winehq.org/)** — Windows compatibility layer
 - **[DXMT](https://github.com/3Shain/dxmt)** — DirectX 11 to Metal translation by 3Shain
-- **[Jadeite](https://github.com/an-anime-team/jadeite)** — Anti-cheat wrapper for Honkai: Star Rail
-- **[xdelta3](http://xdelta.org/)** — Binary delta patching
-- **[YAGL](https://github.com/yaagl/yet-another-anime-game-launcher)** — the launcher Kafka-Launcher is based on
-- **[FireflyGo Proxy](https://github.com/AzenKain/FireflyGo_Proxy)** — local MITM redirect proxy by AzenKain
+- **[Jadeite](https://codeberg.org/mkrsym1/jadeite)** — anti-cheat wrapper for Honkai: Star Rail
+- **[FireflyGo Proxy](https://github.com/AzenKain/FireflyGo_Proxy)** — local proxy by AzenKain
 
 ---
 
