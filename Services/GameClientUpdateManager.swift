@@ -24,6 +24,15 @@ class GameClientUpdateManager {
     }
 
     func applyPatch(gameDir: String, archivePath: String) async throws {
+        try await run(arguments: ["-game", gameDir, "-patch", archivePath])
+    }
+
+    // Applies an already-downloaded payload directory (manifest + ldiff/) with no archive to extract.
+    func applyPatchDirectory(gameDir: String, patchDirectory: String) async throws {
+        try await run(arguments: ["-game", gameDir, "-patch-dir", patchDirectory])
+    }
+
+    private func run(arguments: [String]) async throws {
         await MainActor.run {
             isRunning = true
             stage = "Preparing"
@@ -36,7 +45,7 @@ class GameClientUpdateManager {
 
         let process = Process()
         process.executableURL = URL(fileURLWithPath: Self.toolDir + "/patch-cli")
-        process.arguments = ["-game", gameDir, "-patch", archivePath]
+        process.arguments = arguments
         var env = ProcessInfo.processInfo.environment
         env["PATCHTOOL_DATA_DIR"] = Self.toolDir
         process.environment = env

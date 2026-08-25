@@ -17,24 +17,47 @@ func stage(name string) {
 	fmt.Printf("STAGE %s\n", name)
 }
 
-// patch-cli applies an ldiff/hdiff patch archive to a Star Rail game directory.
-// Usage: patch-cli -game <dir> -patch <archive>  (PATCHTOOL_DATA_DIR points to bin/ tools + temp)
+// Applies an ldiff/hdiff patch: -game <dir> {-patch <archive> | -patch-dir <dir>}, tools from PATCHTOOL_DATA_DIR.
 func main() {
 	game := flag.String("game", "", "game install directory")
 	patch := flag.String("patch", "", "patch archive path (.7z/.zip/.rar)")
+	patchDir := flag.String("patch-dir", "", "pre-extracted patch payload directory (manifest + ldiff/)")
 	flag.Parse()
 
-	if *game == "" || *patch == "" {
-		fail("missing -game or -patch argument")
+	if *game == "" {
+		fail("missing -game argument")
+	}
+	if *patch == "" && *patchDir == "" {
+		fail("missing -patch or -patch-dir argument")
+	}
+	if *patch != "" && *patchDir != "" {
+		fail("-patch and -patch-dir are mutually exclusive")
 	}
 	if _, err := os.Stat(*game); err != nil {
 		fail("game directory not found: " + *game)
 	}
+
+	ds := &diffService.DiffService{}
+
+	if *patchDir != "" {
+		if _, err := os.Stat(*patchDir); err != nil {
+			fail("patch directory not found: " + *patchDir)
+		}
+		stage("Adopt Data")
+		if aok, msg := ds.AdoptDirectory(*game, *patchDir); !aok {
+			fail(msg)
+		}
+		stage("Patch")
+		if pok, msg := ds.LDiffPatchData(*game); !pok {
+			fail(msg)
+		}
+		fmt.Println("RESULT OK")
+		return
+	}
+
 	if _, err := os.Stat(*patch); err != nil {
 		fail("patch archive not found: " + *patch)
 	}
-
-	ds := &diffService.DiffService{}
 
 	stage("Check Type")
 	ok, validType, errType := ds.CheckTypeHDiff(*patch)

@@ -62,8 +62,8 @@ struct GameConfig: Codable, Equatable {
     var alwaysReleaseCursor: Bool = false
     var aggressiveCursorRelease: Bool = false
 
-    // Pre-download flag
-    var predownloadedAll: Bool = false
+    // Version whose pre-downloaded update data is staged and verified
+    var preDownloadedVersion: String?
 
     // March7thHoney server choice; the dropdown sets a preset, custom stores a full URL in march7thHoneyAddress.
     enum March7thServerPreset: String, Codable, CaseIterable, Identifiable {
@@ -151,7 +151,7 @@ struct GameConfig: Codable, Equatable {
         case useMarch7thHoney, betaUseMarch7thHoney, march7thHoneyAddress, march7thServerPreset, customProxyPath
         case useSteamPatch, enableReShade, workaround3
         case winemsync, alwaysReleaseCursor, aggressiveCursorRelease
-        case predownloadedAll
+        case preDownloadedVersion
     }
 
     init(gameType: GameType) {
@@ -187,7 +187,7 @@ struct GameConfig: Codable, Equatable {
         self.winemsync = true
         self.alwaysReleaseCursor = false
         self.aggressiveCursorRelease = false
-        self.predownloadedAll = false
+        self.preDownloadedVersion = nil
     }
 
     init(from decoder: Decoder) throws {
@@ -229,7 +229,7 @@ struct GameConfig: Codable, Equatable {
         self.winemsync = try container.decodeIfPresent(Bool.self, forKey: .winemsync) ?? true
         self.alwaysReleaseCursor = try container.decodeIfPresent(Bool.self, forKey: .alwaysReleaseCursor) ?? false
         self.aggressiveCursorRelease = try container.decodeIfPresent(Bool.self, forKey: .aggressiveCursorRelease) ?? false
-        self.predownloadedAll = try container.decodeIfPresent(Bool.self, forKey: .predownloadedAll) ?? false
+        self.preDownloadedVersion = try container.decodeIfPresent(String.self, forKey: .preDownloadedVersion)
     }
 }
 
