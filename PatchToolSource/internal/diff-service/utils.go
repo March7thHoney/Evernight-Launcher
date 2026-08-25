@@ -35,13 +35,27 @@ func (h *DiffService) CutData(gamePath string) (bool, string) {
 	if _, err := os.Stat(constant.TempUrl); os.IsNotExist(err) {
 		return false, err.Error()
 	}
+	return moveTree(constant.TempUrl, gamePath)
+}
 
-	err := filepath.Walk(constant.TempUrl, func(path string, info os.FileInfo, err error) error {
+// AdoptDirectory takes an already-downloaded patch payload (manifest + ldiff/) instead of an archive.
+func (h *DiffService) AdoptDirectory(gamePath, sourcePath string) (bool, string) {
+	if _, err := os.Stat(gamePath); err != nil {
+		return false, err.Error()
+	}
+	if _, err := os.Stat(sourcePath); err != nil {
+		return false, err.Error()
+	}
+	return moveTree(sourcePath, gamePath)
+}
+
+func moveTree(sourcePath, gamePath string) (bool, string) {
+	err := filepath.Walk(sourcePath, func(path string, info os.FileInfo, err error) error {
 		if err != nil {
 			return err
 		}
 
-		relPath, err := filepath.Rel(constant.TempUrl, path)
+		relPath, err := filepath.Rel(sourcePath, path)
 		if err != nil {
 			return err
 		}
@@ -77,9 +91,9 @@ func (h *DiffService) CutData(gamePath string) (bool, string) {
 	})
 
 	if err != nil {
-		os.RemoveAll(constant.TempUrl)
+		os.RemoveAll(sourcePath)
 		return false, err.Error()
 	}
-	os.RemoveAll(constant.TempUrl)
+	os.RemoveAll(sourcePath)
 	return true, "cut completed"
 }

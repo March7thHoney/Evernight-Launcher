@@ -1178,41 +1178,6 @@ class GameManager {
 
         try? FileManager.default.removeItem(atPath: regPath)
     }
-
-    // MARK: - Predownload
-
-    func predownloadUpdate(for type: GameType) async {
-        guard let gameInfo = games[type] else { return }
-
-        do {
-            let manifest = try await api.fetchLatestVersion(for: gameInfo)
-            guard let predownload = manifest.pre_download,
-                  let major = predownload.major,
-                  let pkg = major.game_pkgs.first,
-                  let url = URL(string: pkg.url) else { return }
-
-            let tempDir = WineManager.basePath + "/predownload/\(type.rawValue)"
-            try FileManager.default.createDirectory(atPath: tempDir, withIntermediateDirectories: true)
-
-            downloadManager.download(
-                url: url,
-                to: URL(fileURLWithPath: tempDir + "/" + url.lastPathComponent),
-                id: "predownload_\(type.rawValue)",
-                gameType: type,
-                onProgress: { _ in },
-                onComplete: { [weak self] result in
-                    if case .success = result {
-                        self?.settings.updateConfig(for: type) { config in
-                            config.predownloadedAll = true
-                        }
-                        self?.settings.save()
-                    }
-                }
-            )
-        } catch {
-            print("Predownload failed: \(error)")
-        }
-    }
 }
 
 // MARK: - WineInstallProgress Extension

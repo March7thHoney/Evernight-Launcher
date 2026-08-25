@@ -426,6 +426,32 @@ struct GameSettingsContent: View {
                                 Spacer()
                             }
 
+                            if hasInstalledClient, !gameManager.officialClientManager.preDownloadSummary.isEmpty {
+                                Divider().opacity(0.5)
+
+                                HStack {
+                                    Text("Pre-download")
+                                    Spacer()
+                                    Text(gameManager.officialClientManager.preDownloadSummary)
+                                        .foregroundStyle(gameManager.officialClientManager.preDownloadReady ? .green : .secondary)
+                                }
+
+                                if gameManager.officialClientManager.preDownloadAvailable {
+                                    HStack {
+                                        Button(gameManager.officialClientManager.preDownloadActionLabel) {
+                                            preDownloadOfficialClient()
+                                        }
+                                        .buttonStyle(.bordered)
+                                        .disabled(gameManager.officialClientManager.isRunning)
+                                        Spacer()
+                                    }
+
+                                    Text("Downloads the next version ahead of release. Nothing is applied until it goes live, then Update installs it without downloading again. Only the currently installed voice language is fetched.")
+                                        .font(.caption)
+                                        .foregroundStyle(.secondary)
+                                }
+                            }
+
                             if hasInstalledClient {
                                 HStack {
                                     Button("Quick Verify") { verifyOfficialFiles() }
@@ -442,11 +468,24 @@ struct GameSettingsContent: View {
                             if gameManager.officialClientManager.isRunning {
                                 ProgressView(value: gameManager.officialClientManager.progress)
                                     .progressViewStyle(.linear)
-                                Text(gameManager.officialClientManager.stage)
-                                    .font(.caption)
-                                    .foregroundStyle(.secondary)
-                                    .lineLimit(1)
-                                    .truncationMode(.middle)
+                                HStack {
+                                    Text(gameManager.officialClientManager.stage)
+                                        .font(.caption)
+                                        .foregroundStyle(.secondary)
+                                        .lineLimit(1)
+                                        .truncationMode(.middle)
+                                    Spacer()
+                                    if gameManager.officialClientManager.isDownloading {
+                                        Button("Cancel") { gameManager.officialClientManager.cancelDownload() }
+                                            .buttonStyle(.borderless)
+                                            .controlSize(.small)
+                                    }
+                                }
+                                if !gameManager.officialClientManager.transferSummary.isEmpty {
+                                    Text(gameManager.officialClientManager.transferSummary)
+                                        .font(.caption.monospacedDigit())
+                                        .foregroundStyle(.secondary)
+                                }
                             }
 
                             if !gameManager.officialClientManager.statusMessage.isEmpty {
@@ -683,9 +722,24 @@ struct GameSettingsContent: View {
                 let version = try await gameManager.officialClientManager.updateGame(directory: directory, region: region)
                 gameManager.settings.updateConfig(for: gameType) {
                     $0.setInstalledVersion(version, for: .official)
+                    $0.preDownloadedVersion = nil
                 }
                 gameManager.settings.save()
                 await gameManager.checkAllGameStates()
+            } catch {
+                gameManager.officialClientManager.statusMessage = error.localizedDescription
+            }
+        }
+    }
+
+    private func preDownloadOfficialClient() {
+        guard let directory = gameDirectory else { return }
+        let region = gameManager.settings.config(for: gameType).officialRegion
+        Task {
+            do {
+                let version = try await gameManager.officialClientManager.preDownload(directory: directory, region: region)
+                gameManager.settings.updateConfig(for: gameType) { $0.preDownloadedVersion = version }
+                gameManager.settings.save()
             } catch {
                 gameManager.officialClientManager.statusMessage = error.localizedDescription
             }

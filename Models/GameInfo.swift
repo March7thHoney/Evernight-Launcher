@@ -28,6 +28,23 @@ enum OfficialGameRegion: String, Codable, CaseIterable, Identifiable {
             return URL(string: "https://sg-hyp-api.hoyoverse.com/hyp/hyp-connect/api/getGamePackages?launcher_id=VYTpXlbWo8&game_ids%5B%5D=4ziysqXOQ8")!
         }
     }
+
+    // Pre-download lives only here; getGamePackages.pre_download is a permanently empty shell.
+    var branchURL: URL {
+        switch self {
+        case .mainlandChina:
+            return URL(string: "https://hyp-api.mihoyo.com/hyp/hyp-connect/api/getGameBranches?launcher_id=jGHBHlcOq1&game_ids%5B%5D=64kMb5iAWu&language=zh-cn")!
+        case .global:
+            return URL(string: "https://sg-hyp-api.hoyoverse.com/hyp/hyp-connect/api/getGameBranches?launcher_id=VYTpXlbWo8&game_ids%5B%5D=4ziysqXOQ8")!
+        }
+    }
+
+    var sophonBaseURL: String {
+        switch self {
+        case .mainlandChina: return "https://api-takumi.mihoyo.com/downloader/sophon_chunk/api"
+        case .global: return "https://sg-public-api.hoyoverse.com/downloader/sophon_chunk/api"
+        }
+    }
 }
 
 // MARK: - Game Info (Server configuration + HoyoConnect data)
@@ -112,6 +129,72 @@ struct GamePackageManifest: Decodable {
 struct GameId: Decodable {
     let biz: String
     let id: String
+}
+
+// MARK: - Sophon (chunk-based) API Models
+
+struct GameBranchesData: Decodable {
+    let game_branches: [GameBranch]
+}
+
+struct GameBranch: Decodable {
+    let game: GameId
+    let main: BranchInfo?
+    let pre_download: BranchInfo?
+
+    struct BranchInfo: Decodable {
+        let package_id: String
+        let branch: String
+        let password: String
+        let tag: String
+        let diff_tags: [String]?
+        // Reported by the server as a HoYoPlay build gate; plain requests are accepted without it.
+        let required_client_version: String?
+    }
+}
+
+struct SophonPatchBuild: Decodable {
+    let build_id: String
+    let patch_id: String?
+    let tag: String
+    let manifests: [SophonPatchManifest]
+}
+
+struct SophonPatchManifest: Decodable {
+    let category_id: String
+    let matching_field: String
+    let manifest: FileRef
+    let manifest_download: Endpoint
+    let diff_download: Endpoint?
+    let stats: [String: Stat]?
+
+    struct FileRef: Decodable {
+        let id: String
+        let checksum: String?
+        let compressed_size: String?
+        let uncompressed_size: String?
+
+        var byteCount: Int64 { Int64(compressed_size ?? "") ?? 0 }
+    }
+
+    struct Endpoint: Decodable {
+        let url_prefix: String
+        let url_suffix: String?
+        let compression: Int?
+    }
+
+    struct Stat: Decodable {
+        let compressed_size: String?
+        let file_count: String?
+        let chunk_count: String?
+
+        var byteCount: Int64 { Int64(compressed_size ?? "") ?? 0 }
+        var chunkCount: Int { Int(chunk_count ?? "") ?? 0 }
+    }
+
+    var manifestURL: URL? {
+        URL(string: manifest_download.url_prefix + "/" + manifest.id + (manifest_download.url_suffix ?? ""))
+    }
 }
 
 struct AllGameBasicInfoData: Decodable {

@@ -69,6 +69,44 @@ actor GameServerAPI {
         return game
     }
 
+    // Sophon branch descriptor; carries the credentials the chunk API needs.
+    func fetchStarRailBranch(region: OfficialGameRegion) async throws -> GameBranch {
+        let (data, response) = try await session.data(from: region.branchURL)
+        guard let http = response as? HTTPURLResponse, (200...299).contains(http.statusCode) else {
+            throw APIError.invalidResponse
+        }
+        let result = try JSONDecoder().decode(HypConnectResponse<GameBranchesData>.self, from: data)
+        guard result.retcode == 0,
+              let branch = result.data.game_branches.first(where: { $0.game.biz == region.bizId }) else {
+            throw APIError.gameNotFound(region.bizId)
+        }
+        return branch
+    }
+
+    // getPatchBuild only answers POST with a JSON body; a GET returns HTTP 405.
+    func fetchSophonPatchBuild(
+        region: OfficialGameRegion,
+        branch: GameBranch.BranchInfo
+    ) async throws -> SophonPatchBuild {
+        var components = "\(region.sophonBaseURL)/getPatchBuild"
+        components += "?branch=\(branch.branch)&password=\(branch.password)"
+        components += "&package_id=\(branch.package_id)&tag=\(branch.tag)"
+        guard let url = URL(string: components) else { throw APIError.invalidResponse }
+
+        var request = URLRequest(url: url)
+        request.httpMethod = "POST"
+        request.setValue("application/json", forHTTPHeaderField: "Content-Type")
+        request.httpBody = Data("{}".utf8)
+
+        let (data, response) = try await session.data(for: request)
+        guard let http = response as? HTTPURLResponse, (200...299).contains(http.statusCode) else {
+            throw APIError.invalidResponse
+        }
+        let result = try JSONDecoder().decode(HypConnectResponse<SophonPatchBuild>.self, from: data)
+        guard result.retcode == 0 else { throw APIError.invalidResponse }
+        return result.data
+    }
+
     enum APIError: LocalizedError {
         case gameNotFound(String)
         case invalidResponse
