@@ -97,27 +97,56 @@ final class OfficialGameClientManager {
         )
     }
 
+    private var isUpdateAvailable: Bool {
+        guard let installedVersion, let latestVersion else { return false }
+        return GameVersionDetector.isNewer(latestVersion, than: installedVersion)
+    }
+
+    // getGamePackages stopped tracking major releases, so the sophon branch tag is authoritative.
+    private func resolveLatest(
+        region: OfficialGameRegion
+    ) async throws -> (manifest: GamePackageManifest, branch: GameBranch?, tag: String?) {
+        let manifest = try await api.fetchStarRailManifest(region: region)
+        let branch = try? await api.fetchStarRailBranch(region: region)
+        return (manifest, branch, branch?.main?.tag ?? manifest.main.major?.version)
+    }
+
+    // The sophon branch that can patch the installed build; pre-download wins while it is open.
+    private func patchBranch(
+        _ branch: GameBranch,
+        installedVersion: String?,
+        preDownloadOnly: Bool = false
+    ) -> GameBranch.BranchInfo? {
+        guard let installedVersion else { return nil }
+        let candidates = preDownloadOnly ? [branch.pre_download] : [branch.pre_download, branch.main]
+        return candidates.compactMap { $0 }.first {
+            $0.tag != installedVersion && $0.diff_tags?.contains(installedVersion) == true
+        }
+    }
+
     func checkForUpdates(directory: String, region: OfficialGameRegion) async throws {
         begin(stage: "Checking official version")
         defer { finishRun() }
 
         refreshInstalledInfo(directory: directory)
-        let manifest = try await api.fetchStarRailManifest(region: region)
-        latestManifest = manifest
-        latestVersion = manifest.main.major?.version
-        updateAvailable = installedVersion != nil && latestVersion != nil && installedVersion != latestVersion
+        let latest = try await resolveLatest(region: region)
+        latestManifest = latest.manifest
+        latestVersion = latest.tag
+        updateAvailable = isUpdateAvailable
 
-        await refreshPreDownloadState(directory: directory, region: region)
+        await refreshPreDownloadState(directory: directory, region: region, branch: latest.branch)
 
         if updateAvailable {
-            let staged = usablePreDownload(directory: directory, region: region, target: latestVersion ?? "")
-            let compatible = compatiblePatch(in: manifest.main, installedVersion: installedVersion)
+            let target = latestVersion ?? ""
+            let staged = usablePreDownload(directory: directory, region: region, target: target)
+            let sophon = latest.branch.flatMap { patchBranch($0, installedVersion: installedVersion) }
+            let compatible = compatiblePatch(in: latest.manifest.main, installedVersion: installedVersion)
             if staged != nil {
-                statusMessage = "Version \(latestVersion ?? "unknown") is available and already pre-downloaded."
+                statusMessage = "Version \(target) is available and already pre-downloaded."
             } else {
-                statusMessage = compatible == nil
+                statusMessage = sophon == nil && compatible == nil
                     ? "Version \(installedVersion ?? "unknown") has no compatible incremental package."
-                    : "Version \(latestVersion ?? "unknown") is available."
+                    : "Version \(target) is available."
             }
         } else if installedVersion == nil {
             statusMessage = "No installed client found."
@@ -165,10 +194,11 @@ final class OfficialGameClientManager {
         try? fm.removeItem(atPath: staging)
 
         latestManifest = manifest
-        latestVersion = major.version
         installedVersion = GameVersionDetector.detectInstalledVersion(gameType: .honkaiStarRail, installDir: directory)
             ?? major.version
-        updateAvailable = false
+        // The full package can lag the live tag, so a fresh install may still owe a sophon patch.
+        latestVersion = (try? await api.fetchStarRailBranch(region: region))?.main?.tag ?? major.version
+        updateAvailable = isUpdateAvailable
         finish("Download complete.", onProgress: onProgress)
         return installedVersion ?? major.version
     }
@@ -178,26 +208,23 @@ final class OfficialGameClientManager {
         defer { finishRun() }
 
         refreshInstalledInfo(directory: directory)
-        let manifest = try await api.fetchStarRailManifest(region: region)
-        guard let major = manifest.main.major else { throw OfficialClientError.missingPackage }
+        let latest = try await resolveLatest(region: region)
+        let manifest = latest.manifest
+        guard let target = latest.tag else { throw OfficialClientError.missingPackage }
         try patchManager.ensureToolsAvailable()
 
-        if let staged = usablePreDownload(directory: directory, region: region, target: major.version) {
-            try checkAvailableSpace(at: directory, required: staged.ledger.totalBytes * 2)
-            for (index, category) in staged.ledger.categories.enumerated() {
-                stage = "Applying pre-downloaded \(category.matchingField) data"
-                progress = Double(index) / Double(staged.ledger.categories.count)
-                try await patchManager.applyPatchDirectory(
-                    gameDir: directory,
-                    patchDirectory: staged.root + "/" + category.id
-                )
-                // patch-cli consumes ldiff/ but leaves the manifest it moved in.
-                try? fm.removeItem(atPath: directory + "/manifest")
-                try? fm.removeItem(atPath: directory + "/ldiff")
-            }
-            try? fm.removeItem(atPath: staged.root)
+        if let staged = usablePreDownload(directory: directory, region: region, target: target) {
+            try await applySophonPatch(staged.ledger, at: staged.root, to: directory)
+        } else if let ledger = try? await refreshLedger(directory: directory, region: region, from: installedVersion ?? ""),
+                  ledger.toVersion == target {
+            let root = preDownloadRoot(in: directory, region: region, from: ledger.fromVersion)
+            let remaining = max(0, ledger.totalBytes - stagedBytes(for: ledger, at: root))
+            try checkAvailableSpace(at: directory, required: remaining + ledger.totalBytes * 2)
+            try await fetchChunks(ledger, at: root)
+            try await applySophonPatch(ledger, at: root, to: directory)
         } else {
-            guard let patch = compatiblePatch(in: manifest.main, installedVersion: installedVersion),
+            guard let major = manifest.main.major,
+                  let patch = compatiblePatch(in: manifest.main, installedVersion: installedVersion),
                   let gamePackage = patch.game_pkgs.first else {
                 throw OfficialClientError.noCompatiblePatch(installedVersion ?? "unknown")
             }
@@ -224,14 +251,30 @@ final class OfficialGameClientManager {
         }
 
         latestManifest = manifest
-        latestVersion = major.version
+        latestVersion = target
         installedVersion = GameVersionDetector.detectInstalledVersion(gameType: .honkaiStarRail, installDir: directory)
-            ?? major.version
-        updateAvailable = installedVersion != latestVersion
+            ?? target
+        updateAvailable = isUpdateAvailable
         clearPreDownloadState()
         progress = 1
-        statusMessage = "Updated to \(installedVersion ?? major.version)."
-        return installedVersion ?? major.version
+        statusMessage = "Updated to \(installedVersion ?? target)."
+        return installedVersion ?? target
+    }
+
+    private func applySophonPatch(_ ledger: PreDownloadLedger, at root: String, to directory: String) async throws {
+        try checkAvailableSpace(at: directory, required: ledger.totalBytes * 2)
+        for (index, category) in ledger.categories.enumerated() {
+            stage = "Applying \(category.matchingField) data"
+            progress = Double(index) / Double(ledger.categories.count)
+            try await patchManager.applyPatchDirectory(
+                gameDir: directory,
+                patchDirectory: root + "/" + category.id
+            )
+            // patch-cli consumes ldiff/ but leaves the manifest it moved in.
+            try? fm.removeItem(atPath: directory + "/manifest")
+            try? fm.removeItem(atPath: directory + "/ldiff")
+        }
+        try? fm.removeItem(atPath: root)
     }
 
     // MARK: - Pre-download
@@ -252,7 +295,12 @@ final class OfficialGameClientManager {
         refreshInstalledInfo(directory: directory)
         guard let installedVersion else { throw OfficialClientError.noPreDownload("unknown") }
 
-        let ledger = try await refreshLedger(directory: directory, region: region, from: installedVersion)
+        let ledger = try await refreshLedger(
+            directory: directory,
+            region: region,
+            from: installedVersion,
+            preDownloadOnly: true
+        )
         let root = preDownloadRoot(in: directory, region: region, from: installedVersion)
         staged = (root, ledger)
         preDownloadVersion = ledger.toVersion
@@ -262,20 +310,7 @@ final class OfficialGameClientManager {
 
         let remaining = max(0, ledger.totalBytes - stagedBytes(for: ledger, at: root))
         try checkAvailableSpace(at: directory, required: remaining + (1 << 30))
-
-        let jobs = ledger.categories.flatMap { category in
-            category.chunks.map { chunk in
-                DownloadJob(
-                    item: DownloadItem(
-                        url: category.chunkURLPrefix + "/" + chunk.name + category.chunkURLSuffix,
-                        size: chunk.size,
-                        md5: chunk.md5
-                    ),
-                    destination: URL(fileURLWithPath: root + "/" + category.id + "/ldiff/" + chunk.name)
-                )
-            }
-        }
-        _ = try await run(jobs)
+        try await fetchChunks(ledger, at: root)
 
         preDownloadVersion = ledger.toVersion
         preDownloadTotalBytes = ledger.totalBytes
@@ -292,21 +327,52 @@ final class OfficialGameClientManager {
         activeProcess?.terminate()
     }
 
+    private func fetchChunks(_ ledger: PreDownloadLedger, at root: String) async throws {
+        let jobs = ledger.categories.flatMap { category in
+            category.chunks.map { chunk in
+                DownloadJob(
+                    item: DownloadItem(
+                        url: category.chunkURLPrefix + "/" + chunk.name + category.chunkURLSuffix,
+                        size: chunk.size,
+                        md5: chunk.md5
+                    ),
+                    destination: URL(fileURLWithPath: root + "/" + category.id + "/ldiff/" + chunk.name)
+                )
+            }
+        }
+        _ = try await run(jobs)
+    }
+
     // Network state is best effort: a sophon outage must not break the ordinary update check.
-    private func refreshPreDownloadState(directory: String, region: OfficialGameRegion) async {
+    private func refreshPreDownloadState(
+        directory: String,
+        region: OfficialGameRegion,
+        branch: GameBranch?
+    ) async {
         clearPreDownloadState()
         preDownloadIssue = nil
         guard let installedVersion else { return }
 
         let root = preDownloadRoot(in: directory, region: region, from: installedVersion)
         var ledger: PreDownloadLedger?
-        do {
-            ledger = try await refreshLedger(directory: directory, region: region, from: installedVersion)
-        } catch {
-            if let issue = error as? OfficialClientError, case .noPreDownloadPatch = issue {
-                preDownloadIssue = issue.localizedDescription
+        if branch?.pre_download != nil {
+            do {
+                ledger = try await refreshLedger(
+                    directory: directory,
+                    region: region,
+                    from: installedVersion,
+                    preDownloadOnly: true
+                )
+            } catch {
+                if let issue = error as? OfficialClientError, case .noPreDownloadPatch = issue {
+                    preDownloadIssue = issue.localizedDescription
+                }
+                ledger = loadLedger(at: root)
             }
+        } else {
+            // The window has closed, so only report bytes that are actually staged on disk.
             ledger = loadLedger(at: root)
+            if let ledger, stagedBytes(for: ledger, at: root) == 0 { return }
         }
         guard let ledger, ledger.toVersion != installedVersion else { return }
 
@@ -321,14 +387,17 @@ final class OfficialGameClientManager {
     private func refreshLedger(
         directory: String,
         region: OfficialGameRegion,
-        from installedVersion: String
+        from installedVersion: String,
+        preDownloadOnly: Bool = false
     ) async throws -> PreDownloadLedger {
+        guard !installedVersion.isEmpty else { throw OfficialClientError.noPreDownload("unknown") }
         let branch = try await api.fetchStarRailBranch(region: region)
-        guard let pre = branch.pre_download, pre.tag != installedVersion else {
-            throw OfficialClientError.noPreDownload(installedVersion)
-        }
-        guard pre.diff_tags?.contains(installedVersion) == true else {
-            throw OfficialClientError.noPreDownloadPatch(installedVersion, pre.tag)
+        let candidate = preDownloadOnly ? branch.pre_download : branch.main ?? branch.pre_download
+        guard let pre = patchBranch(branch, installedVersion: installedVersion, preDownloadOnly: preDownloadOnly) else {
+            guard let candidate, candidate.tag != installedVersion else {
+                throw OfficialClientError.noPreDownload(installedVersion)
+            }
+            throw OfficialClientError.noPreDownloadPatch(installedVersion, candidate.tag)
         }
 
         let build = try await api.fetchSophonPatchBuild(region: region, branch: pre)
@@ -532,7 +601,8 @@ final class OfficialGameClientManager {
         }.value
 
         latestManifest = manifest
-        latestVersion = major.version
+        // Verification uses the shipped package list; it must not walk back a newer sophon tag.
+        if latestVersion == nil { latestVersion = major.version }
         resourceEntries = entries
         resourceBaseURL = baseURL
         integrityIssues = issues

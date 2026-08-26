@@ -36,7 +36,7 @@ A native macOS launcher for **Honkai: Star Rail**, built with Swift & SwiftUI. I
 
 ## Features
 
-- **Official client management** — Both regions supported (CN via `hyp-api.mihoyo.com`, OS via `sg-hyp-api.hoyoverse.com`): full download with MD5-verified packages and a free-space check, incremental updates, plus **Quick Verify** and **Repair Files** against the official resource list.
+- **Official client management** — Both regions supported (CN via `hyp-api.mihoyo.com`, OS via `sg-hyp-api.hoyoverse.com`): full download with MD5-verified packages and a free-space check, incremental updates, plus **Quick Verify** and **Repair Files** against the official resource list. The live version comes from the sophon branch tag, which is what the official launcher now tracks; incremental updates prefer the sophon chunk patch and fall back to the legacy package patch.
 - **Pre-download** — Fetches the next version's update data as soon as the official pre-download window opens, using the sophon chunk API the official launcher now uses. Nothing is applied until the version goes live; **Update** then installs from the staged data without downloading again. Resumable and cancellable, with byte-level progress.
 - **Binary version detection** — Reads the Unity `globalgamemanagers` data file directly to identify the installed version.
 - **Independent Official / Beta profiles** — Install directory, installed version and state are tracked separately per profile. The Beta profile updates from a local patch archive (`.7z` / `.zip` / `.rar`), supporting both `ldiff` (chunked manifest) and `hdiff` (file-level) patches.

@@ -86,6 +86,16 @@ struct GameVersionDetector {
         return patch < 50
     }
 
+    // Unparsable tags fall back to plain inequality so an unknown scheme still offers the update.
+    static func isNewer(_ candidate: String, than current: String) -> Bool {
+        guard let new = versionComponents(candidate), let old = versionComponents(current) else {
+            return candidate != current
+        }
+        if new.major != old.major { return new.major > old.major }
+        if new.minor != old.minor { return new.minor > old.minor }
+        return new.patch > old.patch
+    }
+
     // MARK: - Private Helpers
 
     private static func findPattern(in data: Data, pattern: [UInt8]) -> Int? {
