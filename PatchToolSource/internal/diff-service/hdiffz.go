@@ -54,10 +54,8 @@ func (h *DiffService) VersionValidate(gamePath, patchPath string) (bool, string)
 		return false, err.Error()
 	}
 
-	if _, err := os.Stat(constant.TempUrl); os.IsNotExist(err) {
-		if err := os.MkdirAll(constant.TempUrl, os.ModePerm); err != nil {
-			return false, err.Error()
-		}
+	if err := os.MkdirAll(constant.TempUrl, os.ModePerm); err != nil {
+		return false, err.Error()
 	}
 
 	okFull, errFull := sevenzip.IsFileIn7z(patchPath, "StarRail_Data/StreamingAssets/BinaryVersion.bytes")
@@ -70,92 +68,113 @@ func (h *DiffService) VersionValidate(gamePath, patchPath string) (bool, string)
 		return true, "validated without BinaryVersion"
 	}
 
-	var tempBinFile string
+	expected, msg := expectedBinaryVersionMD5(gamePath, patchPath)
+	if expected == "" {
+		return false, msg
+	}
+
+	// Re-running a partly applied patch: the installed file already is the target.
+	if actual, err := verifier.FileMD5(oldBinPath); err == nil && strings.EqualFold(actual, expected) {
+		return true, "already at target version"
+	}
+
+	tempBinFile := filepath.Join(constant.TempUrl, "BinaryVersion.bytes")
+	defer os.Remove(tempBinFile)
 
 	if okFull {
 		if err := sevenzip.ExtractAFileFromZip(patchPath, "StarRail_Data/StreamingAssets/BinaryVersion.bytes", constant.TempUrl); err != nil {
 			return false, err.Error()
 		}
-		tempBinFile = filepath.Join(constant.TempUrl, "BinaryVersion.bytes")
 	} else {
 		if err := sevenzip.ExtractAFileFromZip(patchPath, "StarRail_Data/StreamingAssets/BinaryVersion.bytes.hdiff", constant.TempUrl); err != nil {
 			return false, err.Error()
 		}
-
 		patchBinFile := filepath.Join(constant.TempUrl, "BinaryVersion.bytes.hdiff")
-		sourceBinFile := oldBinPath
-		tempBinFile = filepath.Join(constant.TempUrl, "BinaryVersion.bytes")
-
-		if err := hpatchz.ApplyPatch(sourceBinFile, patchBinFile, tempBinFile); err != nil {
-			os.Remove(patchBinFile)
+		err := hpatchz.ApplyPatch(oldBinPath, patchBinFile, tempBinFile)
+		os.Remove(patchBinFile)
+		if err != nil {
 			return false, err.Error()
 		}
-		os.Remove(patchBinFile)
 	}
+
+	md5, err := verifier.FileMD5(tempBinFile)
+	if err != nil {
+		return false, err.Error()
+	}
+	if !strings.EqualFold(md5, expected) {
+		return false, fmt.Sprintf("md5 mismatch for %s: expected %s, got %s", tempBinFile, expected, md5)
+	}
+	if _, err := models.ParseBinaryVersion(tempBinFile); err != nil {
+		return false, err.Error()
+	}
+
+	return true, "validated"
+}
+
+// Target md5 of BinaryVersion.bytes, read from the patch's pkg_version.
+func expectedBinaryVersionMD5(gamePath, patchPath string) (string, string) {
+	tempPkgFile := filepath.Join(constant.TempUrl, "pkg_version")
+	defer os.Remove(tempPkgFile)
 
 	okFullPkg, err1 := sevenzip.IsFileIn7z(patchPath, "pkg_version")
 	okDiffPkg, err2 := sevenzip.IsFileIn7z(patchPath, "pkg_version.hdiff")
 	if err1 != nil && err2 != nil {
-		return false, err1.Error()
+		return "", err1.Error()
 	}
-	if okFullPkg {
+
+	pkgFile := tempPkgFile
+	switch {
+	case okFullPkg:
 		if err := sevenzip.ExtractAFileFromZip(patchPath, "pkg_version", constant.TempUrl); err != nil {
-			return false, err.Error()
+			return "", err.Error()
 		}
-	}
-	if okDiffPkg {
+	case okDiffPkg:
 		if err := sevenzip.ExtractAFileFromZip(patchPath, "pkg_version.hdiff", constant.TempUrl); err != nil {
-			return false, err.Error()
+			return "", err.Error()
 		}
 		patchPkgFile := filepath.Join(constant.TempUrl, "pkg_version.hdiff")
-		sourcePkgFile := filepath.Join(gamePath, "pkg_version")
-		tempPkgFile := filepath.Join(constant.TempUrl, "pkg_version")
-		if err := hpatchz.ApplyPatch(sourcePkgFile, patchPkgFile, tempPkgFile); err != nil {
-			os.Remove(patchPkgFile)
-			os.Remove(tempPkgFile)
-			return false, err.Error()
-		}
+		err := hpatchz.ApplyPatch(filepath.Join(gamePath, "pkg_version"), patchPkgFile, tempPkgFile)
 		os.Remove(patchPkgFile)
+		// An earlier run already patched it, so the installed copy is the target.
+		if err != nil {
+			pkgFile = filepath.Join(gamePath, "pkg_version")
+		}
+	default:
+		return "", "pkg_version not found in patch"
 	}
 
-	tempPkgFile := filepath.Join(constant.TempUrl, "pkg_version")
-	pkgDataList, err := models.LoadPkgVersion(tempPkgFile)
+	pkgDataList, err := models.LoadPkgVersion(pkgFile)
 	if err != nil {
-		os.Remove(tempPkgFile)
-		return false, err.Error()
+		return "", err.Error()
 	}
-	os.Remove(tempPkgFile)
-
-	// MD5 check BinaryVersion
-	flags := false
 	for _, pkgData := range pkgDataList {
 		if strings.ReplaceAll(pkgData.RemoteFile, "\\", "/") == "StarRail_Data/StreamingAssets/BinaryVersion.bytes" {
-			flags = true
-			md5, err := verifier.FileMD5(tempBinFile)
-			if err != nil {
-				os.Remove(tempBinFile)
-				return false, err.Error()
-			}
-			if md5 != pkgData.MD5 {
-				os.Remove(tempBinFile)
-				return false, fmt.Sprintf("md5 mismatch for %s: expected %s, got %s",
-					tempBinFile, pkgData.MD5, md5)
-			}
-			break
+			return pkgData.MD5, ""
 		}
 	}
-	if !flags {
-		os.Remove(tempBinFile)
-		return false, "BinaryVersion file not found in patch"
-	}
-	_, err = models.ParseBinaryVersion(tempBinFile)
-	if err != nil {
-		os.Remove(tempBinFile)
-		return false, err.Error()
-	}
+	return "", "BinaryVersion file not found in patch"
+}
 
-	os.Remove(tempBinFile)
-	return true, "validated"
+// Empty when the file matches the expected size/md5, otherwise the reason it does not.
+func verifyFile(path string, size int64, md5 string) string {
+	info, err := os.Stat(path)
+	if err != nil {
+		return "missing"
+	}
+	if size > 0 && info.Size() != size {
+		return fmt.Sprintf("size mismatch: expected %d, got %d", size, info.Size())
+	}
+	if md5 == "" {
+		return ""
+	}
+	actual, err := verifier.FileMD5(path)
+	if err != nil {
+		return "unreadable: " + err.Error()
+	}
+	if !strings.EqualFold(actual, md5) {
+		return fmt.Sprintf("md5 mismatch: expected %s, got %s", md5, actual)
+	}
+	return ""
 }
 
 func (h *DiffService) HDiffPatchData(gamePath string) (bool, string) {
@@ -208,105 +227,100 @@ func (h *DiffService) HDiffPatchData(gamePath string) (bool, string) {
 
 	var wg sync.WaitGroup
 	jobs := make(chan *models.HDiffData, len(jsonData.DiffMap))
-	var progress int32
-	var errorMu sync.Mutex
+	var progress, patched, reused int32
+	var mu sync.Mutex
 	var firstError error
+	var skippedEntries []*models.HDiffData
 	setError := func(err error) {
-		errorMu.Lock()
-		defer errorMu.Unlock()
+		mu.Lock()
+		defer mu.Unlock()
 		if firstError == nil {
 			firstError = err
 		}
 	}
 	hasError := func() bool {
-		errorMu.Lock()
-		defer errorMu.Unlock()
+		mu.Lock()
+		defer mu.Unlock()
 		return firstError != nil
+	}
+	// A local file the patch no longer recognises is left untouched instead of aborting the whole run.
+	skip := func(entry *models.HDiffData, reason string) {
+		mu.Lock()
+		skippedEntries = append(skippedEntries, entry)
+		mu.Unlock()
+		emitWarn(fmt.Sprintf("%s (%s)", entry.TargetFileName, reason))
+	}
+
+	processEntry := func(entry *models.HDiffData) {
+		sourceFile := filepath.Join(gamePath, filepath.FromSlash(strings.ReplaceAll(entry.SourceFileName, "\\", "/")))
+		patchFile := filepath.Join(gamePath, filepath.FromSlash(strings.ReplaceAll(entry.PatchFileName, "\\", "/")))
+		targetFile := filepath.Join(gamePath, filepath.FromSlash(strings.ReplaceAll(entry.TargetFileName, "\\", "/")))
+
+		// Resuming a run that stopped halfway: this entry is already the target.
+		if entry.TargetFileMD5 != "" && verifyFile(targetFile, entry.TargetFileSize, entry.TargetFileMD5) == "" {
+			if entry.SourceFileName != "" && entry.SourceFileName != entry.TargetFileName {
+				os.Remove(sourceFile)
+			}
+			os.Remove(patchFile)
+			atomic.AddInt32(&reused, 1)
+			return
+		}
+
+		if reason := verifyFile(patchFile, entry.PatchFileSize, entry.PatchFileMD5); reason != "" {
+			setError(fmt.Errorf("patch file %s %s", entry.PatchFileName, reason))
+			return
+		}
+		if err := os.MkdirAll(filepath.Dir(targetFile), os.ModePerm); err != nil {
+			setError(err)
+			return
+		}
+		if entry.SourceFileName != "" {
+			if reason := verifyFile(sourceFile, entry.SourceFileSize, entry.SourceFileMD5); reason != "" {
+				skip(entry, "source "+reason)
+				return
+			}
+		}
+
+		// Patch into a sibling temp file so a failure never damages the installed one.
+		tempFile := targetFile + ".hpatch_tmp"
+		os.Remove(tempFile)
+		var err error
+		if entry.SourceFileName == "" {
+			err = hpatchz.ApplyPatchEmpty(patchFile, tempFile)
+		} else {
+			err = hpatchz.ApplyPatch(sourceFile, patchFile, tempFile)
+		}
+		if err != nil {
+			os.Remove(tempFile)
+			setError(err)
+			return
+		}
+		if reason := verifyFile(tempFile, entry.TargetFileSize, entry.TargetFileMD5); reason != "" {
+			os.Remove(tempFile)
+			skip(entry, "patched output "+reason)
+			return
+		}
+		if err := os.Rename(tempFile, targetFile); err != nil {
+			os.Remove(tempFile)
+			setError(err)
+			return
+		}
+
+		if entry.SourceFileName != "" && entry.SourceFileName != entry.TargetFileName {
+			os.Remove(sourceFile)
+		}
+		os.Remove(patchFile)
+		atomic.AddInt32(&patched, 1)
 	}
 
 	workerCount := max(1, runtime.NumCPU()/2)
 	for i := 0; i < workerCount; i++ {
 		wg.Go(func() {
 			for entry := range jobs {
-				if hasError() {
-					continue
+				if !hasError() {
+					processEntry(entry)
 				}
-				currentProgress := atomic.AddInt32(&progress, 1)
-				emitProgress(int(currentProgress), len(jsonData.DiffMap))
-
-				sourceFile := filepath.Join(gamePath, filepath.FromSlash(strings.ReplaceAll(entry.SourceFileName, "\\", "/")))
-				patchFile := filepath.Join(gamePath, filepath.FromSlash(strings.ReplaceAll(entry.PatchFileName, "\\", "/")))
-				targetFile := filepath.Join(gamePath, filepath.FromSlash(strings.ReplaceAll(entry.TargetFileName, "\\", "/")))
-
-				if _, err := os.Stat(patchFile); err != nil {
-					setError(fmt.Errorf("patch file missing: %s", entry.PatchFileName))
-					continue
-				}
-				if entry.PatchFileSize > 0 {
-					info, err := os.Stat(patchFile)
-					if err != nil || info.Size() != entry.PatchFileSize {
-						setError(fmt.Errorf("patch size mismatch: %s", entry.PatchFileName))
-						continue
-					}
-				}
-				if entry.PatchFileMD5 != "" {
-					actual, err := verifier.FileMD5(patchFile)
-					if err != nil || !strings.EqualFold(actual, entry.PatchFileMD5) {
-						setError(fmt.Errorf("patch md5 mismatch: %s", entry.PatchFileName))
-						continue
-					}
-				}
-				if err := os.MkdirAll(filepath.Dir(targetFile), os.ModePerm); err != nil {
-					setError(err)
-					continue
-				}
-
-				if entry.SourceFileName == "" {
-					if err := hpatchz.ApplyPatchEmpty(patchFile, targetFile); err != nil {
-						setError(err)
-						continue
-					}
-				} else {
-					info, err := os.Stat(sourceFile)
-					if err != nil {
-						setError(fmt.Errorf("source file missing: %s", entry.SourceFileName))
-						continue
-					}
-					if entry.SourceFileSize > 0 && info.Size() != entry.SourceFileSize {
-						setError(fmt.Errorf("source size mismatch: %s", entry.SourceFileName))
-						continue
-					}
-					if entry.SourceFileMD5 != "" {
-						actual, err := verifier.FileMD5(sourceFile)
-						if err != nil || !strings.EqualFold(actual, entry.SourceFileMD5) {
-							setError(fmt.Errorf("source md5 mismatch: %s", entry.SourceFileName))
-							continue
-						}
-					}
-					if err := hpatchz.ApplyPatch(sourceFile, patchFile, targetFile); err != nil {
-						setError(err)
-						continue
-					}
-				}
-
-				if entry.TargetFileSize > 0 {
-					info, err := os.Stat(targetFile)
-					if err != nil || info.Size() != entry.TargetFileSize {
-						setError(fmt.Errorf("target size mismatch: %s", entry.TargetFileName))
-						continue
-					}
-				}
-				if entry.TargetFileMD5 != "" {
-					actual, err := verifier.FileMD5(targetFile)
-					if err != nil || !strings.EqualFold(actual, entry.TargetFileMD5) {
-						setError(fmt.Errorf("target md5 mismatch: %s", entry.TargetFileName))
-						continue
-					}
-				}
-				if entry.SourceFileName != "" && entry.SourceFileName != entry.TargetFileName {
-					os.Remove(sourceFile)
-				}
-				os.Remove(patchFile)
+				emitProgress(int(atomic.AddInt32(&progress, 1)), len(jsonData.DiffMap))
 			}
 		})
 	}
@@ -320,10 +334,13 @@ func (h *DiffService) HDiffPatchData(gamePath string) (bool, string) {
 		return false, firstError.Error()
 	}
 
+	for _, entry := range skippedEntries {
+		os.Remove(filepath.Join(gamePath, filepath.FromSlash(strings.ReplaceAll(entry.PatchFileName, "\\", "/"))))
+	}
 	os.Remove(filepath.Join(gamePath, "hdiffmap.json"))
 	os.Remove(filepath.Join(gamePath, "hdifffiles.txt"))
 	os.Remove(filepath.Join(gamePath, "hdifffiles.json"))
-	return true, "patching completed"
+	return true, fmt.Sprintf("patching completed (%d patched, %d already up to date, %d skipped)", patched, reused, len(skippedEntries))
 }
 
 func (h *DiffService) DeleteFiles(gamePath string) (bool, string) {

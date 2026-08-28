@@ -26,3 +26,9 @@ func emitMessage(msg string) {
 	defer emitMu.Unlock()
 	fmt.Fprintf(os.Stdout, "MSG %s\n", msg)
 }
+
+func emitWarn(msg string) {
+	emitMu.Lock()
+	defer emitMu.Unlock()
+	fmt.Fprintf(os.Stdout, "WARN %s\n", msg)
+}

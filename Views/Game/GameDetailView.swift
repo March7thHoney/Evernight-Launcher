@@ -308,6 +308,7 @@ struct GameSettingsContent: View {
     @State private var patchFileURL: URL?
     @State private var updateStatus: String?
     @State private var updateStatusIsError = false
+    @State private var updateSkipped: [String] = []
     @State private var showRepairConfirmation = false
 
     private var clientVersion: GameClientVersion { gameManager.selectedClientVersion }
@@ -531,6 +532,7 @@ struct GameSettingsContent: View {
                                         .foregroundStyle(updateStatusIsError ? .yellow : .green)
                                         .lineLimit(1)
                                         .truncationMode(.middle)
+                                        .help(updateSkipped.isEmpty ? msg : updateSkipped.joined(separator: "\n"))
                                 }
                             }
 
@@ -809,6 +811,7 @@ struct GameSettingsContent: View {
         if panel.runModal() == .OK, let url = panel.url {
             patchFileURL = url
             updateStatus = nil
+            updateSkipped = []
         }
     }
 
@@ -821,6 +824,7 @@ struct GameSettingsContent: View {
         }
         guard let patch = patchFileURL else { return }
         updateStatus = nil
+        updateSkipped = []
         Task {
             do {
                 try await gameManager.gameClientUpdateManager.applyPatch(gameDir: dir, archivePath: patch.path)
@@ -831,8 +835,10 @@ struct GameSettingsContent: View {
                     gameManager.settings.save()
                 }
                 await gameManager.checkAllGameStates()
+                let skipped = gameManager.gameClientUpdateManager.warnings
                 await MainActor.run {
-                    updateStatus = "Updated"
+                    updateSkipped = skipped
+                    updateStatus = skipped.isEmpty ? "Updated" : "Updated · skipped \(skipped.count) file(s)"
                     updateStatusIsError = false
                 }
             } catch {

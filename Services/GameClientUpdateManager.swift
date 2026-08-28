@@ -11,6 +11,7 @@ class GameClientUpdateManager {
     var stage = ""
     var progress: Double = 0
     var statusMessage = ""
+    var warnings: [String] = []
 
     // Managed dir holding patch-cli plus bin/{hpatchz,7zz}; also where patch-cli extracts to (temp/).
     static let toolDir = WineManager.basePath + "/patchtool"
@@ -38,6 +39,7 @@ class GameClientUpdateManager {
             stage = "Preparing"
             progress = 0
             statusMessage = ""
+            warnings = []
         }
         defer { Task { @MainActor in self.isRunning = false } }
 
@@ -87,6 +89,8 @@ class GameClientUpdateManager {
             }
         } else if line.hasPrefix("MSG ") {
             statusMessage = String(line.dropFirst(4))
+        } else if line.hasPrefix("WARN "), warnings.count < 200 {
+            warnings.append(String(line.dropFirst(5)))
         }
     }
 
