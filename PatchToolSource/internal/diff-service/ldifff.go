@@ -12,12 +12,13 @@ import (
 	"sync"
 )
 
-func (h *DiffService) LDiffPatchData(gamePath string) (bool, string) {
+func (h *DiffService) LDiffPatchData(gamePath string) (bool, string, []*models.HDiffData) {
 	entries, err := os.ReadDir(gamePath)
 	if err != nil {
-		return false, err.Error()
+		return false, err.Error(), nil
 	}
 	ldiffPath := filepath.Join(gamePath, "ldiff")
+	var appliedEntries []*models.HDiffData
 
 	for _, entry := range entries {
 		if entry.IsDir() {
@@ -39,7 +40,7 @@ func (h *DiffService) LDiffPatchData(gamePath string) (bool, string) {
 
 			ldiffEntries, err := os.ReadDir(ldiffPath)
 			if err != nil {
-				return false, err.Error()
+				return false, err.Error(), nil
 			}
 			emitStage("Processing LDiff")
 			for i, ldiffEntry := range ldiffEntries {
@@ -81,6 +82,7 @@ func (h *DiffService) LDiffPatchData(gamePath string) (bool, string) {
 					if err != nil {
 						continue
 					}
+					appliedEntries = append(appliedEntries, &models.HDiffData{TargetFileName: ma.AssetName})
 				}
 			}
 
@@ -91,7 +93,7 @@ func (h *DiffService) LDiffPatchData(gamePath string) (bool, string) {
 
 			diffMapList, err := MakeDiffMap(manifest, diffMapNames)
 			if err != nil {
-				return false, err.Error()
+				return false, err.Error(), nil
 			}
 			emitStage("Patching HDiff")
 			for i, entry := range diffMapList {
@@ -124,7 +126,7 @@ func (h *DiffService) LDiffPatchData(gamePath string) (bool, string) {
 		}
 	}
 	os.RemoveAll(ldiffPath)
-	return true, "patching completed"
+	return true, "patching completed", appliedEntries
 }
 
 func MakeDiffMap(manifest *pb.ManifestProto, chunkNames []string) ([]*models.HDiffData, error) {

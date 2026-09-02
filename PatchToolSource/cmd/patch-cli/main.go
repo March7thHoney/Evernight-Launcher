@@ -6,6 +6,7 @@ import (
 	"os"
 
 	diffService "firefly-launcher/internal/diff-service"
+	"firefly-launcher/pkg/models"
 )
 
 func fail(msg string) {
@@ -48,8 +49,12 @@ func main() {
 			fail(msg)
 		}
 		stage("Patch")
-		if pok, msg := ds.LDiffPatchData(*game); !pok {
+		pok, msg, applied := ds.LDiffPatchData(*game)
+		if !pok {
 			fail(msg)
+		}
+		if sok, smsg := ds.SyncPersistent(*game, applied); !sok {
+			fail(smsg)
 		}
 		fmt.Println("RESULT OK")
 		return
@@ -85,18 +90,27 @@ func main() {
 	}
 
 	stage("Patch")
+	var applied []*models.HDiffData
 	if isHdiff {
-		if pok, msg := ds.HDiffPatchData(*game); !pok {
+		pok, msg, entries := ds.HDiffPatchData(*game)
+		if !pok {
 			fail(msg)
 		}
+		applied = entries
 		stage("Delete Old Files")
 		if dok, msg := ds.DeleteFiles(*game); !dok && msg != "" {
 			fail(msg)
 		}
 	} else {
-		if pok, msg := ds.LDiffPatchData(*game); !pok {
+		pok, msg, entries := ds.LDiffPatchData(*game)
+		if !pok {
 			fail(msg)
 		}
+		applied = entries
+	}
+
+	if sok, msg := ds.SyncPersistent(*game, applied); !sok {
+		fail(msg)
 	}
 
 	fmt.Println("RESULT OK")

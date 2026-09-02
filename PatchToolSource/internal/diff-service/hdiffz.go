@@ -20,6 +20,9 @@ import (
 
 type DiffService struct{}
 
+// Suffix for patch/copy output staged next to its destination before the atomic rename.
+const patchTempSuffix = ".hpatch_tmp"
+
 func (h *DiffService) CheckTypeHDiff(patchPath string) (bool, string, string) {
 	if ok, err := sevenzip.IsFileIn7z(patchPath, "hdifffiles.txt"); err == nil && ok {
 		return true, "hdifffiles.txt", ""
@@ -177,7 +180,7 @@ func verifyFile(path string, size int64, md5 string) string {
 	return ""
 }
 
-func (h *DiffService) HDiffPatchData(gamePath string) (bool, string) {
+func (h *DiffService) HDiffPatchData(gamePath string) (bool, string, []*models.HDiffData) {
 	hdiffMapPath := filepath.Join(gamePath, "hdiffmap.json")
 	hdiffFilesPath := filepath.Join(gamePath, "hdifffiles.txt")
 	hdifffilesJsonPath := filepath.Join(gamePath, "hdifffiles.json")
@@ -189,14 +192,14 @@ func (h *DiffService) HDiffPatchData(gamePath string) (bool, string) {
 	if _, err := os.Stat(hdiffMapPath); err == nil {
 		data, err := os.ReadFile(hdiffMapPath)
 		if err != nil {
-			return false, err.Error()
+			return false, err.Error(), nil
 		}
 
 		var jsonDataDiffMap struct {
 			DiffMap []*models.DiffMapType `json:"diff_map"`
 		}
 		if err := json.Unmarshal(data, &jsonDataDiffMap); err != nil {
-			return false, err.Error()
+			return false, err.Error(), nil
 		}
 		for _, entry := range jsonDataDiffMap.DiffMap {
 			jsonData.DiffMap = append(jsonData.DiffMap, entry.ToHDiffData())
@@ -204,23 +207,23 @@ func (h *DiffService) HDiffPatchData(gamePath string) (bool, string) {
 	} else if _, err := os.Stat(hdifffilesJsonPath); err == nil {
 		data, err := os.ReadFile(hdifffilesJsonPath)
 		if err != nil {
-			return false, err.Error()
+			return false, err.Error(), nil
 		}
 		var hdiffJson []*models.HDiffData
 		if err := json.Unmarshal(data, &hdiffJson); err != nil {
-			return false, err.Error()
+			return false, err.Error(), nil
 		}
 		jsonData.DiffMap = append(jsonData.DiffMap, hdiffJson...)
 	} else if _, err := os.Stat(hdiffFilesPath); err == nil {
 		files, err := models.LoadHDiffFiles(hdiffFilesPath)
 		if err != nil {
-			return false, err.Error()
+			return false, err.Error(), nil
 		}
 		for _, entry := range files {
 			jsonData.DiffMap = append(jsonData.DiffMap, entry.ToHDiffData())
 		}
 	} else {
-		return false, "no hdiff entries map exist"
+		return false, "no hdiff entries map exist", nil
 	}
 
 	emitStage("Patching HDiff")
@@ -231,6 +234,12 @@ func (h *DiffService) HDiffPatchData(gamePath string) (bool, string) {
 	var mu sync.Mutex
 	var firstError error
 	var skippedEntries []*models.HDiffData
+	var appliedEntries []*models.HDiffData
+	addApplied := func(entry *models.HDiffData) {
+		mu.Lock()
+		appliedEntries = append(appliedEntries, entry)
+		mu.Unlock()
+	}
 	setError := func(err error) {
 		mu.Lock()
 		defer mu.Unlock()
@@ -262,6 +271,8 @@ func (h *DiffService) HDiffPatchData(gamePath string) (bool, string) {
 				os.Remove(sourceFile)
 			}
 			os.Remove(patchFile)
+			os.Remove(targetFile + patchTempSuffix)
+			addApplied(entry)
 			atomic.AddInt32(&reused, 1)
 			return
 		}
@@ -282,7 +293,7 @@ func (h *DiffService) HDiffPatchData(gamePath string) (bool, string) {
 		}
 
 		// Patch into a sibling temp file so a failure never damages the installed one.
-		tempFile := targetFile + ".hpatch_tmp"
+		tempFile := targetFile + patchTempSuffix
 		os.Remove(tempFile)
 		var err error
 		if entry.SourceFileName == "" {
@@ -310,6 +321,7 @@ func (h *DiffService) HDiffPatchData(gamePath string) (bool, string) {
 			os.Remove(sourceFile)
 		}
 		os.Remove(patchFile)
+		addApplied(entry)
 		atomic.AddInt32(&patched, 1)
 	}
 
@@ -331,7 +343,7 @@ func (h *DiffService) HDiffPatchData(gamePath string) (bool, string) {
 	close(jobs)
 	wg.Wait()
 	if firstError != nil {
-		return false, firstError.Error()
+		return false, firstError.Error(), nil
 	}
 
 	for _, entry := range skippedEntries {
@@ -340,7 +352,7 @@ func (h *DiffService) HDiffPatchData(gamePath string) (bool, string) {
 	os.Remove(filepath.Join(gamePath, "hdiffmap.json"))
 	os.Remove(filepath.Join(gamePath, "hdifffiles.txt"))
 	os.Remove(filepath.Join(gamePath, "hdifffiles.json"))
-	return true, fmt.Sprintf("patching completed (%d patched, %d already up to date, %d skipped)", patched, reused, len(skippedEntries))
+	return true, fmt.Sprintf("patching completed (%d patched, %d already up to date, %d skipped)", patched, reused, len(skippedEntries)), appliedEntries
 }
 
 func (h *DiffService) DeleteFiles(gamePath string) (bool, string) {
